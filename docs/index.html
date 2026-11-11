@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Daily Stock Analyst</title>
-<meta name="description" content="Daily multi-factor stock analysis: where to buy, where to put the stop-loss, when to take profit.">
+<title>Momentum Stock Analyst</title>
+<meta name="description" content="Relative-strength momentum rotation for NSE stocks: what to buy, what to sell, when to rebalance, with honest backtests.">
 <style>
 :root{
   --bg:#f6f7f9;--panel:#ffffff;--panel2:#f0f2f5;--text:#141821;--muted:#5d6675;--line:#e1e5eb;
@@ -92,148 +92,168 @@ summary{cursor:pointer;font-weight:600}
 footer{font-size:12px;color:var(--muted);text-align:center;padding:20px 0}
 @media (max-width:600px){.wrap{padding:12px 16px}.regime{font-size:22px}h1{font-size:19px}}
 </style>
+<style>
+.s-KEEP,.s-HOLD{background:var(--grey-bg);color:var(--text)}
+.s-TOP{background:var(--blue-bg);color:var(--accent)}
+.s-VCP{background:var(--amber-bg);color:var(--amber)}
+.big{font-size:30px;font-weight:750}
+.on{color:var(--green)}.off{color:var(--red)}
+.steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}
+.step{background:var(--panel2);border-radius:10px;padding:12px}
+.step h4{margin:0 0 8px;font-size:13px;text-transform:uppercase;letter-spacing:.04em}
+.step ul{margin:0;padding-left:18px}
+.step li{margin:3px 0}
+.checks{list-style:none;padding:0;margin:0}
+.checks li{padding:4px 0 4px 24px;position:relative}
+.checks li:before{position:absolute;left:2px;font-weight:700}
+.checks li.y:before{content:"✓";color:var(--green)}
+.checks li.n:before{content:"✗";color:var(--red)}
+.note{font-size:12px;color:var(--muted);border-left:3px solid var(--line);padding:4px 10px;margin:10px 0}
+</style>
 </head>
 <body>
 <div class="wrap">
 <header>
   <div>
-    <h1>📈 Daily Stock Analyst</h1>
+    <h1>📈 Momentum Stock Analyst</h1>
     <div class="muted small" id="updated">Loading…</div>
   </div>
   <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
     <span class="muted small" id="countdown"></span>
     <button class="btn" id="refresh">↻ Refresh</button>
-    <button class="btn" id="theme" title="Toggle theme">◐</button>
+    <button class="btn" id="theme" title="Toggle theme">◐ Theme</button>
   </div>
 </header>
-
 <div id="banners"></div>
 
 <div class="grid g2">
   <section class="panel">
-    <h2>1 · How is the market today?</h2>
-    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
-      <div><div class="muted small">Market mood</div><div class="regime" id="regime">–</div></div>
-      <div style="text-align:right"><div class="muted small" id="benchName"></div><div class="kpi" style="background:none;padding:0"><div class="v" id="benchPx">–</div></div><div id="benchChg"></div></div>
+    <h2>1 · Market health — should money be invested?</h2>
+    <div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:flex-start">
+      <div><div class="muted small">System status</div><div class="big" id="mktState">–</div></div>
+      <div style="text-align:right"><div class="muted small" id="benchName"></div><div class="big" style="font-size:22px" id="benchPx">–</div><div id="benchChg"></div></div>
     </div>
-    <p id="advice" style="font-weight:550"></p>
+    <p id="mktWhy" style="font-weight:550"></p>
     <div id="benchChart"></div>
-    <div class="legend"><span><i style="background:var(--c1)"></i>Index</span><span><i style="background:var(--c2)"></i>50-day avg</span><span><i style="background:var(--c3)"></i>200-day avg</span></div>
-    <div class="kpis" style="margin-top:12px" id="mktKpis"></div>
+    <div class="legend"><span><i style="background:var(--c1)"></i>Nifty 50</span><span><i style="background:var(--c3)"></i>200-day avg</span></div>
+    <h3>Breadth: % of stocks above their 50-day average</h3>
+    <div id="breadthChart"></div>
+    <div class="kpis" id="mktKpis" style="margin-top:10px"></div>
   </section>
 
   <section class="panel">
-    <h2>2 · What should I buy today?</h2>
-    <p class="muted small" style="margin-top:-6px">Best-ranked stocks, sized so that if the stop-loss is hit you lose at most <b id="riskPct"></b> of your capital per trade.</p>
-    <div id="picks"></div>
+    <h2>2 · What do I do, and when?</h2>
+    <div id="plan"></div>
   </section>
 </div>
 
 <section class="panel">
-  <h2>3 · My holdings — hold or sell?</h2>
+  <h2>3 · Model portfolio (what the system holds now)</h2>
+  <p class="muted small" style="margin-top:-6px">The system owns the <b id="topN"></b> strongest stocks in equal amounts. These are its current positions, carried forward from its own history, so you can copy it exactly.</p>
+  <div id="model"></div>
+</section>
+
+<section class="panel">
+  <h2>4 · My holdings: hold or sell?</h2>
   <div id="holdings"></div>
 </section>
 
 <section class="panel">
-  <h2>4 · Full watchlist analysis</h2>
+  <h2>5 · All stocks ranked by strength</h2>
   <div class="toolbar" id="filters"></div>
   <div class="tablewrap" style="max-height:640px;overflow-y:auto">
-    <table id="tbl">
-      <thead><tr>
-        <th data-k="symbol">Stock</th><th data-k="price">Price</th><th data-k="change_pct">Day %</th>
-        <th data-k="signal">Signal</th><th data-k="score">Score</th><th data-k="confidence">Confidence</th>
-        <th data-k="rsi">RSI</th><th data-k="r6">6M %</th><th data-k="fh">From 52W high</th>
-        <th data-k="win">Hist. win %</th><th data-k="bt">Strategy vs hold</th>
-      </tr></thead>
-      <tbody></tbody>
-    </table>
+    <table id="tbl"><thead><tr>
+      <th data-k="rank">#</th><th data-k="symbol" style="text-align:left">Stock</th><th data-k="price">Price</th><th data-k="change_pct">Day</th>
+      <th data-k="rs">RS rank</th><th data-k="tt">Trend checks</th><th data-k="r1">1M</th><th data-k="r3">3M</th><th data-k="r6">6M</th><th data-k="r12">12M</th>
+      <th data-k="from_high">From 52W high</th><th data-k="status">Status</th>
+    </tr></thead><tbody></tbody></table>
   </div>
-  <p class="muted small">Click any row for the full breakdown, chart and trade plan.</p>
+  <p class="muted small">RS rank 99 means stronger than 99% of the stocks here over the last year (recent months weighted more). Click a row for details.</p>
 </section>
 
 <section class="panel">
-  <h2>5 · Would this system have made money? (whole-system backtest)</h2>
-  <p class="muted small" style="margin-top:-6px">The exact same rules simulated on past data across the whole watchlist with your capital, position limits, stop-losses and 0.1% cost per trade — compared with simply buying the index.</p>
+  <h2>6 · VCP scanner (BananaPatterns-style base &amp; breakout)</h2>
+  <p class="muted small" style="margin-top:-6px">Stocks in a confirmed uptrend whose price swings are getting tighter (three shrinking contractions) and that are close to breaking out. <b>Shown for learning.</b> In our tests (section 7) trading these breakouts on their own did worse than the momentum system, so the system does not buy from this list.</p>
+  <div id="vcp"></div>
+</section>
+
+<section class="panel">
+  <h2>7 · Honest backtest: would this have made money?</h2>
+  <p class="muted small" style="margin-top:-6px">Same rules, run on past data, with 0.15% cost on every buy and sell. The settings were chosen using <b>only 2017–2021</b>. <b>2022 onwards</b> is the honest test: the system never "saw" that data while being designed.</p>
   <div class="kpis" id="btKpis"></div>
   <div id="btChart" style="margin-top:12px"></div>
-  <div class="legend"><span><i style="background:var(--c1)"></i>This system</span><span><i style="background:var(--c2)"></i>Buy &amp; hold index</span></div>
+  <div class="legend"><span><i style="background:var(--c1)"></i>This system</span><span><i style="background:var(--c2)"></i>Nifty 50</span><span><i style="background:var(--c3)"></i>Equal-weight basket of all these stocks</span></div>
+  <div class="grid g2" style="margin-top:12px">
+    <div><h3>Design period vs unseen period</h3><div class="tablewrap" id="isoos"></div>
+      <h3>Strategy comparison (incl. VCP)</h3><div class="tablewrap" id="compare"></div></div>
+    <div><h3>Year by year</h3><div class="tablewrap" id="yearly"></div></div>
+  </div>
+  <div class="note"><b>Read this before trusting the numbers.</b> (1) The stock list is <i>today's</i> big companies; firms that collapsed and left the index are missing, which flatters every strategy here (the "equal-weight basket" line has the same bias, so compare against it, not just the Nifty). (2) Short-term capital-gains tax is not deducted. (3) There are losing years: see the table. Expect real-life results to be lower than shown.</div>
+  <h3>Last trades of the model</h3><div class="tablewrap" id="trades"></div>
 </section>
 
 <section class="panel">
-  <h2>6 · Beginner's guide — read this first</h2>
-  <details open><summary>Your daily 5-minute routine</summary>
+  <h2>8 · Beginner's guide</h2>
+  <details open><summary>The idea in one minute</summary>
+    <p>Stocks that have been rising faster than the rest tend to keep doing so for a while. This is called <b>momentum</b>, one of the most researched effects in finance. The system:</p>
     <ol>
-      <li><b>Check the market mood (box 1).</b> GREEN “BULL” = you may buy. AMBER “CAUTION” = buy small, only strong signals. RED “BEAR” = do not buy anything new.</li>
-      <li><b>Check your holdings (box 3).</b> If it says <span class="tag s-SELL">SELL NOW</span>, sell that stock — the stop-loss was hit. Do not “wait for it to come back”. That is how small losses become big ones.</li>
-      <li><b>New buys (box 2).</b> Buy the quantity shown, near the entry price. <b>Immediately</b> place a stop-loss order at the stop price in your broker app (Zerodha/Groww/Upstox all support “SL” or “GTT” orders).</li>
-      <li><b>Taking profit.</b> When price reaches Target 1, sell half. Move your stop-loss up to your buy price — now that trade can no longer lose money. Let the other half run; the dashboard will tell you when the trailing stop is hit.</li>
-      <li><b>Record your trade</b> in <code>config.json → portfolio</code> (symbol, buy price, quantity, date) so box 3 can track it.</li>
+      <li>Ranks ~160 large, liquid NSE stocks by <b>relative strength</b> (weighted return over 3, 6, 9 and 12 months).</li>
+      <li>Only considers stocks above their <b>200-day average</b> (in an uptrend) with enough daily trading.</li>
+      <li>Holds the <b>top 12, equal money in each</b>. Every 2 weeks it checks again: a stock is kept while it stays in the top 18, otherwise it is swapped for a stronger one.</li>
+      <li><b>Market-health switch:</b> if the Nifty is below its 200-day average <i>and</i> fewer than half the stocks are rising, it sells everything and waits in cash. This is what limits big losses in crashes.</li>
     </ol>
   </details>
-  <details><summary>How the algorithm decides (the score)</summary>
-    <p>Each stock gets a score out of 100 from five independent pillars, recalculated every day:</p>
-    <ul>
-      <li><b>Trend (30)</b> — price vs 50/200-day averages, slope of the 50-day average, ADX trend strength.</li>
-      <li><b>Momentum (25)</b> — RSI in the healthy 50–68 zone, MACD, and whether it beat the index over 3 and 6 months (relative strength).</li>
-      <li><b>Entry quality (15)</b> — is price near its 20-day average (good) or stretched far above it (wait)? Bollinger %B and Stochastic.</li>
-      <li><b>Volume (10)</b> — On-Balance-Volume trend and volume on up-days: are big buyers involved?</li>
-      <li><b>Risk (20)</b> — low volatility, near its 52-week high, small daily range (ATR).</li>
-    </ul>
-    <p><b>≥75 → STRONG BUY, ≥62 → BUY, 45–62 → HOLD, &lt;45 → AVOID/SELL.</b> Then the <b>market filter</b> overrides: in a BEAR market every BUY becomes WAIT. “Confidence” blends the score with how well these rules worked on that same stock historically.</p>
+  <details><summary>Your routine (10 minutes every 2 weeks)</summary>
+    <ol>
+      <li>Look at box 2 on the <b>rebalance day</b> shown there (a Monday, once every two weeks).</li>
+      <li>Sell everything listed under <b>SELL</b>. Then buy the <b>BUY</b> list with the quantity shown. Use "market" or "limit near current price" orders in Zerodha/Groww/Upstox. Delivery (CNC), not intraday.</li>
+      <li>Do nothing with <b>KEEP</b> stocks. Between rebalance days, do nothing at all. Don't react to daily moves.</li>
+      <li>Record buys in <code>config.json → portfolio</code> so box 4 can track them.</li>
+      <li>If box 1 turns <b>OFF</b> on a rebalance day, sell everything and wait. You may park the cash in a liquid fund / LIQUIDBEES.</li>
+    </ol>
   </details>
-  <details><summary>How the stop-loss, targets and quantity are calculated</summary>
-    <ul>
-      <li><b>Stop-loss</b>: just below the lowest price of the last 20 days, but never more than 2.5 × ATR (average daily move) below your entry, and never closer than 1 ATR (so normal noise doesn't kick you out).</li>
-      <li><b>Risk per share (R)</b> = entry − stop. <b>Target 1</b> = entry + 2R, <b>Target 2</b> = entry + 3.5R. Each winner is worth 2–3.5× each loser, so you can be wrong half the time and still make money.</li>
-      <li><b>Quantity</b> = (capital × risk %) ÷ R, capped at the max % of capital per stock. With ₹1,00,000 and 1% risk, a stop-loss hit costs you about ₹1,000 — not your whole account.</li>
-      <li><b>Trailing stop</b>: after Target 1, the stop follows price up at (highest close − 3 × ATR), locking in profit.</li>
-    </ul>
+  <details><summary>Why not BananaPatterns' VCP method?</summary>
+    <p>VCP (Volatility Contraction Pattern) looks for a stock in an uptrend whose pullbacks get smaller and smaller (e.g. −20%, −10%, −5%) while volume dries up, then buys when price breaks above the top of the last tight range on big volume. It's a well-known swing-trading method and the scanner (box 6) implements it.</p>
+    <p>We tested it honestly on 160 NSE stocks over 10 years. It gives few signals, many small losses from failed breakouts, and in 2022–2026 it barely made money. Ranking by relative strength and holding the leaders captured the same "strong stocks keep winning" idea more reliably, so it is the main engine. The VCP list is still useful: a stock that is both <b>in the model</b> and <b>in a VCP</b> is a high-quality leader.</p>
   </details>
   <details><summary>Glossary</summary>
     <ul>
-      <li><b>SMA 50 / 200</b> — average closing price of the last 50 / 200 days. Price above = uptrend.</li>
-      <li><b>RSI</b> — 0–100 speed of price moves. Above 70 = overbought (expensive short-term), below 30 = oversold.</li>
-      <li><b>MACD</b> — difference of two moving averages. Positive and rising = momentum up.</li>
-      <li><b>ADX</b> — trend strength (not direction). Above 25 = strong trend.</li>
-      <li><b>ATR</b> — the average size of one day's move in rupees. Used to size stops.</li>
-      <li><b>Drawdown</b> — biggest fall from a peak. A −20% drawdown means the account fell 20% from its best value at some point.</li>
-      <li><b>Win rate / profit factor</b> — % of trades that made money / total profits ÷ total losses (above 1.5 is good).</li>
-      <li><b>ETF</b> — NIFTYBEES tracks the Nifty 50 index; GOLDBEES tracks gold. Simplest way for a beginner to invest.</li>
+      <li><b>RS rank</b>: relative strength percentile vs all stocks here (0–100).</li>
+      <li><b>Trend checks</b>: 8-point "stage-2 uptrend" checklist (price above rising long-term averages, near 52-week high, etc.).</li>
+      <li><b>200-day average</b>: average price over ~10 months; above it = long-term uptrend.</li>
+      <li><b>Breadth</b>: % of stocks above their 50-day average. A healthy market has many stocks rising, not just a few.</li>
+      <li><b>CAGR</b>: average yearly growth rate. <b>Max drawdown</b>: worst fall from a peak.</li>
+      <li><b>Sharpe</b>: return per unit of risk; above 1 is good.</li>
     </ul>
   </details>
-  <details><summary>⚠️ Honest truth about “no loss”</summary>
-    <p><b>No algorithm in the world can guarantee zero losses</b> — anyone who promises that is lying or running a scam. What this system does instead is the thing professionals actually do: <b>keep every loss small and planned</b> (stop-loss + 1% risk rule), <b>let winners run</b> (targets + trailing stop), and <b>stay out of falling markets</b> (regime filter). Expect roughly 35–55% of individual trades to be small losers; the profit comes from winners being much larger.</p>
-    <p>Start with a small amount you can afford to lose, or paper-trade for a month first. Past performance does not guarantee future results. This is an educational tool, not SEBI-registered investment advice.</p>
+  <details><summary>⚠️ The honest truth about "no loss"</summary>
+    <p><b>No method can guarantee zero losses.</b> Anyone promising that is lying or running a scam. This system had losing years in testing and its worst fall was around −23%. What it does is keep you in the strongest stocks while the market is healthy and get you out when it isn't. Stick to it for years, not weeks, because momentum has bad stretches.</p>
+    <p>Start small (or paper-trade for 2 months). Never invest money you'll need soon. Educational tool, not SEBI-registered investment advice.</p>
   </details>
 </section>
-
-<footer>Data: Yahoo Finance (delayed). Updated automatically on market days by GitHub Actions. Educational use only — not investment advice.</footer>
+<footer>Data: Yahoo Finance (delayed). Updated automatically on market days by GitHub Actions. Educational use only, not investment advice.</footer>
 </div>
 
 <div id="detail"><div class="panel" id="detailBody"></div></div>
-
 <script src="data.js"></script>
 <script>
 (function(){
 const $=s=>document.querySelector(s);
 const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
-let D=window.MARKET_DATA, filter="ALL", sortK=null, sortDir=1, query="";
+let D=window.MARKET_DATA, filter="ALL", sortK="rank", sortDir=1, query="";
 const REFRESH_SEC=300; let left=REFRESH_SEC;
-
-// theme
 try{const t=localStorage.getItem("theme"); if(t) document.documentElement.dataset.theme=t;}catch(e){}
 $("#theme").onclick=()=>{const cur=document.documentElement.dataset.theme||(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light");
   const n=cur==="dark"?"light":"dark"; document.documentElement.dataset.theme=n; try{localStorage.setItem("theme",n)}catch(e){} if(D) render();};
-
 const cur=()=>D.currency||"";
 const fmt=(x,d=2)=>x==null?"–":Number(x).toLocaleString("en-IN",{minimumFractionDigits:d,maximumFractionDigits:d});
 const money=(x,d=0)=>x==null?"–":cur()+fmt(x,d);
 const pct=(x,d=1)=>x==null?"–":`<span class="${x>=0?"up":"dn"}">${x>=0?"+":""}${fmt(x,d)}%</span>`;
-const tagCls=s=>"s-"+String(s).split(" ")[0].replace("/","");
-const tag=s=>`<span class="tag ${tagCls(s)}">${esc(s)}</span>`;
+const tag=(s,cls)=>`<span class="tag s-${cls||String(s).split(" ")[0]}">${esc(s)}</span>`;
 const short=s=>String(s).replace(/\.(NS|BO)$/,"");
-const scoreColor=v=>v>=75?"var(--green)":v>=62?"var(--green)":v>=45?"var(--amber)":"var(--red)";
-const bar=(v,max=100)=>`<span class="bar"><i style="width:${Math.max(0,Math.min(100,v/max*100))}%;background:${scoreColor(v/max*100)}"></i></span>`;
+const day=d=>d?new Date(d+"T00:00:00").toLocaleDateString(undefined,{weekday:"short",day:"numeric",month:"short",year:"numeric"}):"–";
+const bar=(v,max=100)=>{const p=Math.max(0,Math.min(100,v/max*100));return `<span class="bar"><i style="width:${p}%;background:${p>=70?"var(--green)":p>=40?"var(--amber)":"var(--red)"}"></i></span>`;};
+const statusTag=s=>({HOLD:tag("KEEP","KEEP"),SELL:tag("SELL","SELL"),BUY:tag("BUY","BUY"),TOP:tag("TOP 12","TOP")})[s]||"";
 
 // ---------- SVG line chart ----------
 function lineChart(series,dates,opts={}){
@@ -261,94 +281,102 @@ function lineChart(series,dates,opts={}){
   return `<svg viewBox="0 0 ${W} ${H}" role="img">${g}</svg>`;
 }
 
-// ---------- sections ----------
+
+
 function renderMarket(){
   const m=D.market;
-  $("#regime").innerHTML=`<span class="r-${m.regime}">${{BULL:"🟢 BULL",CAUTION:"🟠 CAUTION",BEAR:"🔴 BEAR"}[m.regime]||m.regime}</span>`;
-  $("#benchName").textContent=(D.market_name||"")+" · "+m.symbol;
+  $("#mktState").innerHTML=m.on?`<span class="on">🟢 ON: invested</span>`:`<span class="off">🔴 OFF: in cash</span>`;
+  $("#benchName").textContent=(D.market_name||"")+" · Nifty 50";
   $("#benchPx").textContent=fmt(m.price);
   $("#benchChg").innerHTML=pct(m.change_pct,2)+' <span class="muted small">today</span>';
-  $("#advice").textContent=m.advice;
-  $("#benchChart").innerHTML=lineChart([{name:"Index",data:m.chart.close,c:"var(--c1)"},{name:"50d",data:m.chart.sma50,c:"var(--c2)",w:1.5},{name:"200d",data:m.chart.sma200,c:"var(--c3)",w:1.5}],m.chart.dates,{h:220});
-  const k=[["1 month",pct(m.ret_1m)],["3 months",pct(m.ret_3m)],["12 months",pct(m.ret_12m)],["Index RSI",fmt(m.rsi,0)],["Stocks in uptrend",fmt(m.breadth,0)+"%"]];
-  $("#mktKpis").innerHTML=k.map(([l,v])=>`<div class="kpi"><div class="l">${l}</div><div class="v">${v}</div></div>`).join("");
+  const parts=[`Nifty is ${m.index_uptrend?"<b>in an uptrend</b> (above its 200-day avg, 50 > 200)":"<b>not in a clean uptrend</b>"}`,
+    `<b>${fmt(m.breadth,0)}%</b> of stocks are above their 50-day average (switch needs &gt; ${m.breadth_threshold}% if the index isn't in an uptrend)`];
+  $("#mktWhy").innerHTML=parts.join("; ")+". "+(m.on?"Conditions are healthy enough to hold stocks.":"Conditions are weak, so the system stays in cash to protect capital.");
+  $("#benchChart").innerHTML=lineChart([{name:"Nifty",data:m.chart.close,c:"var(--c1)"},{name:"200d",data:m.chart.sma200,c:"var(--c3)",w:1.5}],m.chart.dates,{h:200});
+  $("#breadthChart").innerHTML=lineChart([{name:"Breadth %",data:m.chart.breadth,c:"var(--c2)"}],m.chart.dates,{h:140,min:0,max:100,hlines:[{y:m.breadth_threshold,c:"var(--muted)",l:"threshold"}]});
+  $("#mktKpis").innerHTML=[["1 month",pct(m.ret_1m)],["12 months",pct(m.ret_12m)],["200-day avg",fmt(m.sma200,0)],["Breadth",fmt(m.breadth,0)+"%"]].map(([l,v])=>`<div class="kpi"><div class="l">${l}</div><div class="v">${v}</div></div>`).join("");
 }
-function renderPicks(){
-  $("#riskPct").textContent=D.config.risk_per_trade_pct+"%";
-  if(!D.picks.length){
-    const why=D.market.regime==="BEAR"?"The market is falling, so the system is staying in cash — protecting your money is the priority. Check again tomorrow.":"No stock passes all the filters today. Waiting is a valid decision — keep your cash.";
-    $("#picks").innerHTML=`<div class="empty">🛡️ <b>No buys today.</b><br>${why}</div>`; return;}
-  let h=`<div class="tablewrap"><table><thead><tr><th>Stock</th><th>Buy qty</th><th>Entry ≈</th><th>Stop-loss</th><th>Target 1</th><th>Target 2</th><th>Invest</th><th>Max loss</th></tr></thead><tbody>`;
-  D.picks.forEach(p=>{h+=`<tr data-s="${esc(p.symbol)}"><td>${tag(p.signal)} <b>${esc(short(p.symbol))}</b></td><td><b>${p.qty}</b></td><td>${money(p.entry,2)}</td><td class="dn">${money(p.stop,2)}</td><td class="up">${money(p.target1,2)}</td><td class="up">${money(p.target2,2)}</td><td>${money(p.invest)}</td><td class="dn">${money(p.max_loss)}</td></tr>`;});
-  h+=`</tbody></table></div><p class="small muted">Total to invest: <b>${money(D.config.capital-D.cash_left)}</b> · Keep in cash: <b>${money(D.cash_left)}</b> of ${money(D.config.capital)}</p>`;
-  $("#picks").innerHTML=h;
+function renderPlan(){
+  const p=D.plan, n=D.strategy.top_n;
+  let h=`<div class="kpis" style="margin-bottom:12px"><div class="kpi"><div class="l">Next rebalance day</div><div class="v" style="font-size:17px">${day(D.next_rebalance)}</div></div><div class="kpi"><div class="l">Last rebalance</div><div class="v" style="font-size:17px">${day(D.last_rebalance)}</div></div><div class="kpi"><div class="l">Money per stock</div><div class="v" style="font-size:17px">${money(p.per_stock)}</div></div></div>`;
+  h+=`<p class="small muted">Based on today's data. On the rebalance day, re-check this box after the market opens and act once. Between rebalance days, do nothing.</p><div class="steps">`;
+  h+=`<div class="step"><h4 class="dn">① Sell</h4>${p.sells.length?`<ul>${p.sells.map(s=>`<li><b>${esc(short(s))}</b></li>`).join("")}</ul>`:'<span class="muted">Nothing to sell</span>'}</div>`;
+  h+=`<div class="step"><h4 class="up">② Buy</h4>${p.buys.length?`<ul>${p.buys.map(b=>`<li><b>${esc(short(b.symbol))}</b>: ${b.qty} shares ≈ ${money(b.invest)} <span class="muted small">(rank #${b.rank})</span></li>`).join("")}</ul>`:'<span class="muted">Nothing new to buy</span>'}</div>`;
+  h+=`<div class="step"><h4>③ Keep</h4>${p.keeps.length?`<ul>${p.keeps.map(s=>`<li>${esc(short(s))}</li>`).join("")}</ul>`:'<span class="muted">–</span>'}</div></div>`;
+  if(!D.market.on) h+=`<div class="banner bad" style="margin-top:12px">Market health is OFF: the plan is to hold <b>cash</b>. Sell any stocks on the rebalance day and wait.</div>`;
+  h+=`<details style="margin-top:12px"><summary>Starting fresh with ${money(D.capital)}? Buy these ${p.fresh.length}</summary>${p.fresh.length?`<div class="tablewrap"><table><thead><tr><th>Stock</th><th>Rank</th><th>Price</th><th>Qty</th><th>Amount</th></tr></thead><tbody>${p.fresh.map(f=>`<tr data-s="${esc(f.symbol)}"><td><b>${esc(short(f.symbol))}</b></td><td>#${f.rank}</td><td>${money(f.price,2)}</td><td>${f.qty}</td><td>${money(f.invest)}</td></tr>`).join("")}</tbody></table></div><p class="small muted">Best done on a rebalance day so you stay in sync with the model. If a share costs more than ${money(p.per_stock)}, the qty is 0. Skip it or raise your capital in config.json.</p>`:'<p class="muted">Market is OFF: stay in cash.</p>'}</details>`;
+  $("#plan").innerHTML=h;
+}
+function renderModel(){
+  $("#topN").textContent=D.strategy.top_n;
+  if(!D.model.length){$("#model").innerHTML='<div class="empty">The model is in cash right now.</div>';return;}
+  $("#model").innerHTML=`<div class="tablewrap"><table><thead><tr><th>Stock</th><th>Held since</th><th>Bought at</th><th>Now</th><th>Gain</th><th>Rank today</th><th>Next rebalance</th></tr></thead><tbody>${D.model.map(m=>`<tr data-s="${esc(m.symbol)}"><td><b>${esc(short(m.symbol))}</b></td><td>${m.since}</td><td>${money(m.entry,2)}</td><td>${money(m.price,2)}</td><td>${pct(m.pnl_pct)}</td><td>${m.rank?"#"+m.rank:"–"}</td><td>${m.action==="KEEP"?tag("KEEP","KEEP"):tag("SELL","SELL")}</td></tr>`).join("")}</tbody></table></div>`;
 }
 function renderHoldings(){
-  if(!D.holdings.length){$("#holdings").innerHTML=`<div class="empty">No holdings recorded yet. After you buy, add the stock to <code>portfolio</code> in <code>config.json</code> (symbol, buy_price, quantity, buy_date) and this box will tell you every day whether to hold or sell.</div>`;return;}
-  let tv=0,tp=0, h=`<div class="tablewrap"><table><thead><tr><th>Stock</th><th>Action</th><th>Qty</th><th>Bought</th><th>Now</th><th>P&amp;L</th><th>Stop-loss</th><th>Target 1</th><th style="text-align:left">Why</th></tr></thead><tbody>`;
-  D.holdings.forEach(x=>{tv+=x.value||0;tp+=x.pnl||0; h+=`<tr data-s="${esc(x.symbol)}"><td><b>${esc(short(x.symbol))}</b></td><td>${tag(x.action)}</td><td>${fmt(x.quantity,0)}</td><td>${money(x.buy_price,2)}</td><td>${money(x.price,2)}</td><td>${pct(x.pnl_pct)}<br><span class="small">${money(x.pnl)}</span></td><td>${money(x.stop,2)}</td><td>${money(x.target1,2)}</td><td class="l small" style="white-space:normal;min-width:220px">${esc(x.why)}</td></tr>`;});
-  h+=`</tbody></table></div><p class="small muted">Holdings value <b>${money(tv)}</b> · Unrealised P&amp;L <b class="${tp>=0?"up":"dn"}">${money(tp)}</b></p>`;
-  $("#holdings").innerHTML=h;
+  if(!D.holdings.length){$("#holdings").innerHTML='<div class="empty">No holdings recorded. After you buy, add them to <code>portfolio</code> in <code>config.json</code> (symbol, buy_price, quantity, buy_date) and this box will tell you what to do with each.</div>';return;}
+  let tv=0,tp=0;
+  const rows=D.holdings.map(x=>{tv+=x.value||0;tp+=x.pnl||0;return `<tr data-s="${esc(x.symbol)}"><td><b>${esc(short(x.symbol))}</b></td><td>${tag(x.action,x.action)}</td><td>${fmt(x.quantity,0)}</td><td>${money(x.buy_price,2)}</td><td>${money(x.price,2)}</td><td>${pct(x.pnl_pct)}<br><span class="small">${money(x.pnl)}</span></td><td>${x.rank?"#"+x.rank:"–"}</td><td class="l small" style="white-space:normal;min-width:240px">${esc(x.why)}</td></tr>`;}).join("");
+  $("#holdings").innerHTML=`<div class="tablewrap"><table><thead><tr><th>Stock</th><th>Action</th><th>Qty</th><th>Bought</th><th>Now</th><th>P&amp;L</th><th>Rank</th><th style="text-align:left">Why</th></tr></thead><tbody>${rows}</tbody></table></div><p class="small muted">Value <b>${money(tv)}</b> · Unrealised P&amp;L <b class="${tp>=0?"up":"dn"}">${money(tp)}</b></p>`;
 }
-const val=(s,k)=>({symbol:s.symbol,price:s.price,change_pct:s.change_pct,signal:["STRONG BUY","BUY","WATCH","WAIT","HOLD","AVOID","NO DATA"].indexOf(s.signal),score:s.score,confidence:s.confidence,rsi:s.ind.RSI,r6:s.ind.RET_6M,fh:s.ind.FROM_HIGH,win:s.backtest.win_rate,bt:s.backtest.total_return-s.backtest.buy_hold})[k];
+const val=(s,k)=>({rank:s.rank??9999,symbol:s.symbol,price:s.price,change_pct:s.change_pct,rs:s.rs,tt:s.tt,r1:s.ret["1M"],r3:s.ret["3M"],r6:s.ret["6M"],r12:s.ret["12M"],from_high:s.from_high,status:["BUY","HOLD","TOP","SELL",""].indexOf(s.status)})[k];
+const FILTERS={"ALL":s=>true,"Model / buy list":s=>!!s.status,"Uptrend (8/8)":s=>s.tt===8,"VCP setups":s=>s.vcp,"Below 200-day":s=>!s.checks["Price above 150 & 200-day avg"]};
 function renderFilters(){
-  const c=D.counts, keys=["ALL","STRONG BUY","BUY","WATCH","WAIT","HOLD","AVOID"];
-  $("#filters").innerHTML=keys.map(k=>`<button class="btn ${filter===k?"on":""}" data-f="${k}">${k} ${k==="ALL"?D.stocks.length:(c[k]||0)}</button>`).join("")+`<input type="search" id="q" placeholder="Search stock…" value="${esc(query)}">`;
+  $("#filters").innerHTML=Object.keys(FILTERS).map(k=>`<button class="btn ${filter===k?"on":""}" data-f="${esc(k)}">${esc(k)} ${D.stocks.filter(FILTERS[k]).length}</button>`).join("")+`<input type="search" id="q" placeholder="Search…" value="${esc(query)}">`;
   $("#filters").querySelectorAll("[data-f]").forEach(b=>b.onclick=()=>{filter=b.dataset.f;renderFilters();renderTable();});
   $("#q").oninput=e=>{query=e.target.value.toLowerCase();renderTable();};
 }
 function renderTable(){
-  let rows=D.stocks.filter(s=>(filter==="ALL"||s.signal===filter)&&(!query||(s.symbol+" "+s.name).toLowerCase().includes(query)));
-  if(sortK) rows=[...rows].sort((a,b)=>{const x=val(a,sortK),y=val(b,sortK); if(x==null) return 1; if(y==null) return -1; return (x>y?1:x<y?-1:0)*sortDir;});
-  $("#tbl tbody").innerHTML=rows.map(s=>{const bt=s.backtest;
-    return `<tr data-s="${esc(s.symbol)}"><td><b>${esc(short(s.symbol))}</b><br><span class="small muted">${esc(s.name!==s.symbol?s.name:"")}</span></td>
-    <td>${fmt(s.price)}</td><td>${pct(s.change_pct,2)}</td><td>${tag(s.signal)}</td>
-    <td>${bar(s.score||0)}${fmt(s.score,0)}</td><td>${fmt(s.confidence,0)}%</td><td>${fmt(s.ind.RSI,0)}</td><td>${pct(s.ind.RET_6M)}</td><td>${pct(s.ind.FROM_HIGH)}</td>
-    <td>${bt.win_rate==null?"–":fmt(bt.win_rate,0)+"%"} <span class="small muted">(${bt.trades})</span></td><td>${pct(bt.total_return,0)} <span class="small muted">vs ${fmt(bt.buy_hold,0)}%</span></td></tr>`;}).join("")||`<tr><td colspan="11" class="empty">Nothing matches.</td></tr>`;
+  let rows=D.stocks.filter(FILTERS[filter]).filter(s=>!query||s.symbol.toLowerCase().includes(query));
+  rows=[...rows].sort((a,b)=>{const x=val(a,sortK),y=val(b,sortK); if(x==null) return 1; if(y==null) return -1; return (x>y?1:x<y?-1:0)*sortDir;});
+  $("#tbl tbody").innerHTML=rows.map(s=>`<tr data-s="${esc(s.symbol)}"><td>${s.rank?"#"+s.rank:"–"}</td><td class="l"><b>${esc(short(s.symbol))}</b> ${s.vcp?tag("VCP","VCP"):""}</td><td>${fmt(s.price)}</td><td>${pct(s.change_pct,2)}</td>
+    <td>${bar(s.rs||0)}${fmt(s.rs,0)}</td><td>${s.tt}/8</td><td>${pct(s.ret["1M"])}</td><td>${pct(s.ret["3M"])}</td><td>${pct(s.ret["6M"])}</td><td>${pct(s.ret["12M"])}</td><td>${pct(s.from_high)}</td><td>${statusTag(s.status)}</td></tr>`).join("")||'<tr><td colspan="12" class="empty">Nothing matches.</td></tr>';
 }
+function renderVcp(){
+  if(!D.vcp.length){$("#vcp").innerHTML='<div class="empty">No stock shows a clean VCP setup today.</div>';return;}
+  $("#vcp").innerHTML=`<div class="tablewrap"><table><thead><tr><th>Stock</th><th>Price</th><th>Pivot (breakout level)</th><th>Distance</th><th>Contractions (60→30→12 days)</th><th>Volume drying up</th><th>Base low (stop)</th><th>RS</th><th>Today</th></tr></thead><tbody>${D.vcp.map(v=>`<tr data-s="${esc(v.symbol)}"><td><b>${esc(short(v.symbol))}</b></td><td>${money(v.price,2)}</td><td>${money(v.pivot,2)}</td><td>${pct(v.to_pivot)}</td><td>${v.contractions.map(c=>fmt(c,0)+"%").join(" → ")}</td><td>${v.vol_dry?"✓":"–"}</td><td>${money(v.stop,2)}</td><td>${fmt(v.rs,0)}</td><td>${v.breakout?tag("BREAKOUT","BUY"):""}</td></tr>`).join("")}</tbody></table></div>`;
+}
+function statRow(n,s){return `<tr><td class="l">${n}</td><td>${pct(s.cagr)}</td><td>${pct(s.mdd)}</td><td>${fmt(s.sharpe)}</td><td>${s.trades}</td><td>${fmt(s.win,0)}%</td></tr>`;}
 function renderBacktest(){
-  const b=D.portfolio_backtest;
-  const k=[["System return",pct(b.total_return)],["Index return",pct(b.bench_return)],["System CAGR / yr",pct(b.cagr)],["System worst drop",pct(b.max_drawdown)],["Index worst drop",pct(b.bench_drawdown)],["Sharpe ratio",fmt(b.sharpe)],["Trades",b.trades],["Winning trades",b.win_rate==null?"–":fmt(b.win_rate,0)+"%"],["Final value",money(b.final_equity)]];
-  $("#btKpis").innerHTML=k.map(([l,v])=>`<div class="kpi"><div class="l">${l}</div><div class="v">${v}</div></div>`).join("");
-  $("#btChart").innerHTML=lineChart([{name:"System",data:b.curve.equity,c:"var(--c1)"},{name:"Index",data:b.curve.bench,c:"var(--c2)"}],b.curve.dates,{h:240})+`<p class="small muted">${b.start} → ${b.end}</p>`;
+  const b=D.backtest, f=b.full;
+  $("#btKpis").innerHTML=[["Yearly growth (CAGR)",pct(f.cagr)],["Nifty CAGR",pct(f.nifty_cagr)],["Worst fall (system)",pct(f.mdd)],["Worst fall (Nifty)",pct(f.nifty_mdd)],["Sharpe",fmt(f.sharpe)],["Winning trades",fmt(f.win,0)+"%"],[`${money(b.capital)} became`,money(b.final)]].map(([l,v])=>`<div class="kpi"><div class="l">${l}</div><div class="v">${v}</div></div>`).join("");
+  $("#btChart").innerHTML=lineChart([{name:"System",data:b.curve.system,c:"var(--c1)"},{name:"Nifty",data:b.curve.nifty,c:"var(--c2)"},{name:"EW basket",data:b.curve.ew,c:"var(--c3)",w:1.5}],b.curve.dates,{h:280})+`<p class="small muted">${b.start} → ${b.end}</p>`;
+  const hdr='<thead><tr><th style="text-align:left">Period</th><th>CAGR</th><th>Worst fall</th><th>Sharpe</th><th>Trades</th><th>Win</th></tr></thead>';
+  $("#isoos").innerHTML=`<table>${hdr}<tbody>${statRow("Design: 2017–2021",b.is)}${statRow("Unseen: 2022–today",b.oos)}
+    <tr><td class="l muted">Nifty 2017–21 / 2022+</td><td>${pct(b.is.nifty_cagr)} / ${pct(b.oos.nifty_cagr)}</td><td>${pct(b.is.nifty_mdd)} / ${pct(b.oos.nifty_mdd)}</td><td colspan="3"></td></tr>
+    <tr><td class="l muted">EW basket 2017–21 / 2022+</td><td>${pct(b.is.ew_cagr)} / ${pct(b.oos.ew_cagr)}</td><td>${pct(b.is.ew_mdd)} / ${pct(b.oos.ew_mdd)}</td><td colspan="3"></td></tr></tbody></table>`;
+  $("#compare").innerHTML=`<table><thead><tr><th style="text-align:left">Strategy</th><th>CAGR 17–21</th><th>CAGR 22+</th><th>Worst fall 22+</th><th>Win 22+</th></tr></thead><tbody>${b.compare.map(c=>`<tr><td class="l">${esc(c.name)}</td><td>${pct(c.is.cagr)}</td><td>${pct(c.oos.cagr)}</td><td>${pct(c.oos.mdd)}</td><td>${fmt(c.oos.win,0)}%</td></tr>`).join("")}</tbody></table>`;
+  $("#yearly").innerHTML=`<table><thead><tr><th style="text-align:left">Year</th><th>System</th><th>Nifty</th><th>Difference</th></tr></thead><tbody>${b.yearly.map(y=>`<tr><td class="l">${y.year}${y.year===new Date().getFullYear()?" (so far)":""}</td><td>${pct(y.system)}</td><td>${pct(y.nifty)}</td><td>${pct(y.system-y.nifty)}</td></tr>`).join("")}</tbody></table>`;
+  $("#trades").innerHTML=`<table><thead><tr><th style="text-align:left">Stock</th><th>Bought</th><th>Sold</th><th>Days</th><th>Result</th></tr></thead><tbody>${b.recent_trades.map(t=>`<tr><td class="l">${esc(short(t.symbol))}</td><td>${t.entry}</td><td>${t.exit}</td><td>${t.days}</td><td>${pct(t.ret)}</td></tr>`).join("")}</tbody></table>`;
 }
 function openDetail(sym){
   const s=D.stocks.find(x=>x.symbol===sym); if(!s) return;
-  const p=s.plan, i=s.ind, bt=s.backtest, hl=[];
-  if(p){hl.push({y:p.stop,c:"var(--red)",l:"Stop"},{y:p.target1,c:"var(--green)",l:"T1"},{y:p.target2,c:"var(--green)",l:"T2"});}
-  const pil={trend:["Trend",30],momentum:["Momentum",25],entry:["Entry quality",15],volume:["Volume",10],risk:["Risk",20]};
-  let h=`<button class="btn close" id="x">✕ Close</button><h2>${esc(short(s.symbol))} <span class="muted" style="font-weight:400">${esc(s.name!==s.symbol?s.name:"")}</span></h2>
-  <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin-bottom:10px">${tag(s.signal)} <span style="font-size:22px;font-weight:700">${money(s.price,2)}</span> ${pct(s.change_pct,2)} <span class="muted">Score <b>${fmt(s.score,0)}</b>/100 · Confidence <b>${fmt(s.confidence,0)}%</b> · as of ${s.date}</span></div>`;
-  if(p){h+=`<h3>Trade plan</h3><div class="plan"><div><span>Buy zone</span><b>${money(p.buy_zone_low,2)} – ${money(p.buy_zone_high,2)}</b></div><div><span>Stop-loss</span><b class="dn">${money(p.stop,2)}</b><span>${fmt(p.stop_pct)}%</span></div><div><span>Target 1 (sell half)</span><b class="up">${money(p.target1,2)}</b><span>+${fmt(p.t1_pct)}%</span></div><div><span>Target 2</span><b class="up">${money(p.target2,2)}</b><span>+${fmt(p.t2_pct)}%</span></div><div><span>Quantity</span><b>${p.qty}</b><span>${money(p.invest)}</span></div><div><span>Max loss if stopped</span><b class="dn">${money(p.max_loss)}</b></div></div>`;
-    if(s.signal==="WAIT") h+=`<p class="small" style="color:var(--amber)">Plan shown for reference only — the market filter says WAIT. Don't buy until the market mood improves.</p>`;}
-  h+=`<h3>Price — last 12 months</h3>${lineChart([{name:"Price",data:s.chart.close,c:"var(--c1)"},{name:"50d",data:s.chart.sma50,c:"var(--c2)",w:1.5},{name:"200d",data:s.chart.sma200,c:"var(--c3)",w:1.5}],s.chart.dates,{hlines:hl})}
-  <div class="legend"><span><i style="background:var(--c1)"></i>Price</span><span><i style="background:var(--c2)"></i>50-day avg</span><span><i style="background:var(--c3)"></i>200-day avg</span>${p?'<span><i style="background:var(--red)"></i>Stop</span><span><i style="background:var(--green)"></i>Targets</span>':""}</div>
-  <div class="grid g2" style="margin-top:12px"><div><h3>Score history (buy ≥ 62)</h3>${lineChart([{name:"Score",data:s.chart.score,c:"var(--c1)"}],s.chart.dates,{w:480,h:200,min:0,max:100,hlines:[{y:62,c:"var(--green)",l:"Buy"},{y:45,c:"var(--red)",l:"Sell"}]})}</div>
-  <div><h3>RSI (30 oversold · 70 overbought)</h3>${lineChart([{name:"RSI",data:s.chart.rsi,c:"var(--c3)"}],s.chart.dates,{w:480,h:200,min:0,max:100,hlines:[{y:70,c:"var(--red)",l:""},{y:30,c:"var(--green)",l:""}]})}</div></div>
-  <div class="grid g2"><div><h3>Score breakdown</h3>${Object.entries(pil).map(([k,[n,m]])=>`<div class="pill-row"><span>${n}</span>${bar(s.pillars[k]||0,m)}<span style="text-align:right">${fmt(s.pillars[k],0)}/${m}</span></div>`).join("")}
-    <h3>Why?</h3><ul class="reasons">${s.reasons.map(([g,t])=>`<li class="${g>0?"g":g<0?"b":"n"}">${esc(t)}</li>`).join("")}</ul></div>
-  <div><h3>Key numbers</h3><div class="kpis">${[["RSI",fmt(i.RSI,0)],["ADX",fmt(i.ADX,0)],["ATR (daily move)",money(i.ATR,2)],["Volatility/yr",fmt(i.VOLAT_ANN,0)+"%"],["1M",pct(i.RET_1M)],["3M",pct(i.RET_3M)],["6M",pct(i.RET_6M)],["12M",pct(i.RET_12M)],["52W high",money(i.HIGH_52W,0)],["52W low",money(i.LOW_52W,0)],["vs 20d avg",pct(i.EXT_EMA20)],["Volume vs avg",fmt(i.VOL_RATIO)+"×"]].map(([l,v])=>`<div class="kpi"><div class="l">${l}</div><div class="v" style="font-size:16px">${v}</div></div>`).join("")}</div>
-    <h3>These rules on this stock (history)</h3><div class="kpis">${[["Trades",bt.trades],["Win rate",bt.win_rate==null?"–":fmt(bt.win_rate,0)+"%"],["Avg win",pct(bt.avg_win)],["Avg loss",pct(bt.avg_loss)],["Profit factor",fmt(bt.profit_factor)],["Strategy",pct(bt.total_return)],["Buy & hold",pct(bt.buy_hold)],["Worst drop",pct(bt.max_drawdown)]].map(([l,v])=>`<div class="kpi"><div class="l">${l}</div><div class="v" style="font-size:16px">${v}</div></div>`).join("")}</div>
-    ${bt.recent_trades.length?`<div class="tablewrap" style="margin-top:8px"><table><thead><tr><th>Entry</th><th>Exit</th><th>Days</th><th>Result</th></tr></thead><tbody>${bt.recent_trades.slice().reverse().map(t=>`<tr><td>${t.entry_date}</td><td>${t.exit_date}</td><td>${t.days}</td><td>${pct(t.ret_pct)}</td></tr>`).join("")}</tbody></table></div>`:""}
-  </div></div>`;
-  $("#detailBody").innerHTML=h; $("#detail").style.display="block"; document.body.style.overflow="hidden";
-  $("#x").onclick=closeDetail;
+  const v=D.vcp.find(x=>x.symbol===sym);
+  let h=`<button class="btn close" id="x">✕ Close</button><h2>${esc(short(s.symbol))}</h2>
+  <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin-bottom:10px"><span style="font-size:22px;font-weight:700">${money(s.price,2)}</span>${pct(s.change_pct,2)} ${statusTag(s.status)} ${s.vcp?tag("VCP setup","VCP"):""}<span class="muted">Strength rank ${s.rank?"#"+s.rank:"– (not eligible)"} · RS ${fmt(s.rs,0)}/100 · Trend ${s.tt}/8</span></div>
+  <h3>Price, last 12 months</h3>${lineChart([{name:"Price",data:s.chart.close,c:"var(--c1)"},{name:"50d",data:s.chart.sma50,c:"var(--c2)",w:1.5},{name:"200d",data:s.chart.sma200,c:"var(--c3)",w:1.5}],s.chart.dates,{hlines:v?[{y:v.pivot,c:"var(--green)",l:"Pivot"},{y:v.stop,c:"var(--red)",l:"Base low"}]:[]})}
+  <div class="legend"><span><i style="background:var(--c1)"></i>Price</span><span><i style="background:var(--c2)"></i>50-day avg</span><span><i style="background:var(--c3)"></i>200-day avg</span></div>
+  <div class="grid g2" style="margin-top:12px"><div><h3>Relative-strength rank over time</h3>${lineChart([{name:"RS",data:s.chart.rs,c:"var(--c1)"}],s.chart.dates,{w:480,h:200,min:0,max:100,hlines:[{y:70,c:"var(--green)",l:""}]})}
+    <h3>Returns</h3><div class="kpis">${Object.entries(s.ret).map(([k,x])=>`<div class="kpi"><div class="l">${k}</div><div class="v" style="font-size:16px">${pct(x)}</div></div>`).join("")}<div class="kpi"><div class="l">Volatility/yr</div><div class="v" style="font-size:16px">${fmt(s.vola,0)}%</div></div><div class="kpi"><div class="l">Avg daily traded</div><div class="v" style="font-size:16px">${money(s.turnover_cr,0)} cr</div></div></div></div>
+  <div><h3>Uptrend checklist</h3><ul class="checks">${Object.entries(s.checks).map(([k,ok])=>`<li class="${ok?"y":"n"}">${esc(k)}</li>`).join("")}</ul>
+    <h3>Technical notes</h3><ul class="reasons">${s.reasons.map(([g,t])=>`<li class="${g>0?"g":g<0?"b":"n"}">${esc(t)}</li>`).join("")}</ul></div></div>`;
+  $("#detailBody").innerHTML=h; $("#detail").style.display="block"; document.body.style.overflow="hidden"; $("#x").onclick=closeDetail;
 }
 function closeDetail(){$("#detail").style.display="none";document.body.style.overflow="";}
 $("#detail").addEventListener("click",e=>{if(e.target.id==="detail") closeDetail();});
 document.addEventListener("keydown",e=>{if(e.key==="Escape") closeDetail();});
 document.addEventListener("click",e=>{const tr=e.target.closest("tr[data-s]"); if(tr&&!e.target.closest("#detail")) openDetail(tr.dataset.s);});
-document.querySelectorAll("#tbl th").forEach(th=>th.onclick=()=>{const k=th.dataset.k; if(sortK===k) sortDir*=-1; else{sortK=k;sortDir=["symbol","signal"].includes(k)?1:-1;} renderTable();});
+document.querySelectorAll("#tbl th").forEach(th=>th.onclick=()=>{const k=th.dataset.k; if(sortK===k) sortDir*=-1; else{sortK=k;sortDir=["rank","symbol","status"].includes(k)?1:-1;} renderTable();});
 
 function render(){
+  if(!D.version){ $("#updated").textContent="Old data format. Waiting for the next automatic update…"; return; }
   const t=new Date(D.generated_at);
-  $("#updated").textContent=`Last analysis: ${t.toLocaleString()} · ${D.stocks.length} stocks analysed · prices as of ${D.stocks[0]?.date||"–"}`;
+  $("#updated").textContent=`Updated ${t.toLocaleString()} · prices as of ${D.as_of} · ${D.stocks.length} stocks analysed`;
   let b="";
-  if(D.demo) b+=`<div class="banner warn">⚠️ DEMO MODE — this page is showing synthetic test data, not real prices. It will switch to live data after the first GitHub Actions run (or run <code>python run.py</code>).</div>`;
+  if(D.demo) b+='<div class="banner warn">⚠️ DEMO MODE: synthetic data, not real prices.</div>';
   if(D.failed&&D.failed.length) b+=`<div class="banner warn small">Could not load: ${D.failed.map(esc).join(", ")}</div>`;
-  const age=(Date.now()-t)/36e5; if(!D.demo&&age>36) b+=`<div class="banner bad">Data is ${Math.round(age)} hours old — the automatic update may have failed. Check the Actions tab on GitHub.</div>`;
+  const age=(Date.now()-t)/36e5; if(!D.demo&&age>80) b+=`<div class="banner bad">Data is ${Math.round(age)} hours old. The automatic update may have failed; check the Actions tab on GitHub.</div>`;
   $("#banners").innerHTML=b;
-  renderMarket();renderPicks();renderHoldings();renderFilters();renderTable();renderBacktest();
+  renderMarket();renderPlan();renderModel();renderHoldings();renderFilters();renderTable();renderVcp();renderBacktest();
 }
 async function reload(){
   try{const r=await fetch("data.json?t="+Date.now(),{cache:"no-store"}); if(r.ok){D=await r.json();render();}}
@@ -357,7 +385,7 @@ async function reload(){
 }
 $("#refresh").onclick=reload;
 setInterval(()=>{left--; $("#countdown").textContent=`auto-refresh in ${Math.floor(left/60)}:${String(left%60).padStart(2,"0")}`; if(left<=0) reload();},1000);
-if(D) render(); else { $("#updated").textContent="No data yet — run python run.py"; reload(); }
+if(D) render(); else { $("#updated").textContent="No data yet: run python run.py"; reload(); }
 })();
 </script>
 </body>

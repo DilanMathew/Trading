@@ -1,99 +1,75 @@
-# 📈 Daily Stock Analyst
+# 📈 Momentum Stock Analyst (NSE)
 
-An automated stock-analysis system for beginners. Every market day it:
+A rules-based system that tells a beginner **what to buy, what to sell and when**, and shows
+everything in a self-updating HTML dashboard.
 
-1. **Reads the market mood**: BULL / CAUTION / BEAR, based on the Nifty 50 index.
-2. **Scores every stock in your watchlist from 0 to 100** using 20+ indicators grouped into 5 pillars.
-3. **Tells you what to buy**, how many shares, where to put the **stop-loss** and where to **take profit**.
-4. **Tells you when to sell** the stocks you already own.
-5. **Backtests the same rules on ~3 years of history** so you can see whether they would have worked.
-6. Shows everything in a live **HTML dashboard** that refreshes on its own.
+**Dashboard:** https://dilanmathew.github.io/Trading/ (updated automatically twice every market day)
 
-> ⚠️ **No algorithm can guarantee zero losses.** Anyone promising that is lying. This system aims for
-> *small, controlled losses and larger profits*: 1% risk per trade, stop-losses on every position,
-> profit-taking with trailing stops, and no new buying in falling markets. It is an educational tool,
-> not SEBI-registered investment advice. Start small or paper-trade first.
+> ⚠️ **No method can guarantee zero losses.** This system had losing years in testing, and its worst
+> peak-to-trough fall was about −23%. It is an educational tool, not SEBI-registered investment advice.
+> Start small or paper-trade first.
 
----
+## How it works: Momentum Rotation
+1. **Universe:** ~160 large, liquid NSE stocks (`analyzer/universe.py`).
+2. **Rank** each stock by *relative strength*: weighted 3/6/9/12-month return (40/20/20/20),
+   turned into a 0–100 percentile across the universe.
+3. **Eligible:** price above its 200-day average and average daily turnover ≥ ₹20 cr.
+4. **Hold the top 12, equal money in each.** Rebalance on the first trading day of every second week.
+   A holding is kept while it ranks in the top 18 (buffer = fewer, cheaper trades).
+5. **Market-health switch:** stay invested while the Nifty is in an uptrend (above its 200-day average, with the 50-day above the 200-day)
+   **or** more than 50% of the stocks are above their 50-day average. Otherwise sell everything and hold cash.
 
-## 🖥️ See the dashboard
+All settings live in `config.json → strategy`.
 
-**Online (recommended):** after a one-time setup (below), open
-`https://<your-github-username>.github.io/Trading/`.
+## Why this and not the old score system, or BananaPatterns' VCP?
+`research/` contains the full study: 162 stocks, Dec 2016 → Nov 2026, 0.15% cost per trade, signals on
+day *t* and fills at day *t+1*'s open. Settings were chosen using **only 2017–2021**. **2022 onwards is
+the out-of-sample test** (data the design never saw).
 
-**On your computer:**
+| Strategy | CAGR 2017–21 | CAGR 2022–26 (unseen) | Worst fall 2022–26 |
+|---|---|---|---|
+| **Momentum rotation (this system)** | **+37%** | **+21%** | −23% |
+| VCP base breakout (BananaPatterns-style) | +6% | +4% | −20% |
+| 52-week-high breakout | +20% | +4% | −32% |
+| Nifty 50 | +16% | +8% | −17% |
+| Equal-weight basket of the same stocks | +30% | +21% | −22% |
+
+The previous 5-pillar score / swing-trade system lost money (−14%) over 2024–26 and has been retired.
+
+**Honest caveats**
+- The universe is *today's* large caps, so stocks that collapsed and left the list are missing. That
+  survivorship bias inflates **every** row above. Compare against the equal-weight basket, which has the same
+  bias. Out of sample the system **matched** that basket's return, with a much smaller worst fall in
+  2017–21 (−21% vs −38%).
+- Taxes (STCG) are not deducted. Momentum has bad stretches (2018, 2026 so far).
+- Expect real results to be lower than the backtest.
+
+## Your routine
+- **On rebalance day** (shown in box 2, every other Monday): sell the SELL list, buy the BUY list with the
+  quantity shown (delivery/CNC orders), and leave KEEP stocks alone.
+- **On any other day:** do nothing.
+- **When box 1 is OFF on a rebalance day:** sell everything and wait in cash or a liquid fund.
+- **After every buy:** add it to `config.json → portfolio` so box 4 can track it.
+
+## Run locally
 ```bash
 pip install -r requirements.txt
-python run.py            # downloads real prices and analyses them
-# then double-click docs/index.html to open it in your browser
+python run.py          # writes docs/data.json + docs/data.js; open docs/index.html
 ```
-`python run.py --demo` runs on synthetic data and needs no internet. Use it only for testing.
-
-## ⚙️ One-time GitHub setup (2 minutes)
-
-1. Repo **Settings → Pages → Build and deployment → Source: _GitHub Actions_**.
-2. Repo **Settings → Actions → General → Workflow permissions → _Read and write permissions_** → Save.
-3. **Actions** tab → *Daily stock analysis* → **Run workflow**.
-
-After that it runs on its own every hour during Indian market hours (Mon–Fri, 09:45–16:15 IST),
-commits fresh data, and republishes the page. The open page reloads its data every 5 minutes.
-
-## 📅 Your daily routine
-
-| Step | Where | What to do |
-|---|---|---|
-| 1 | Box 1: Market mood | 🟢 BULL = buying is OK · 🟠 CAUTION = small size, strong signals only · 🔴 BEAR = **no new buys** |
-| 2 | Box 3: My holdings | **SELL NOW** → sell today. **BOOK 50%** → sell half and keep the rest. **HOLD** → do nothing. |
-| 3 | Box 2: Buy today | Buy the quantity shown near the entry price, then **immediately place a stop-loss / GTT order** at the stop price in your broker app. |
-| 4 | `config.json` | Add every buy to `portfolio` so the dashboard can track it. |
-
-## 🧠 How the algorithm works
-
-### Score (0–100) = five independent pillars
-| Pillar | Points | What it checks |
-|---|---|---|
-| Trend | 30 | Price vs 50/200-day averages, golden cross, 50-day slope, ADX direction and strength |
-| Momentum | 25 | RSI in the healthy 50–68 zone, MACD and its acceleration, 3- and 6-month performance against the index |
-| Entry quality | 15 | Distance from the 20-day EMA (avoids chasing), Bollinger %B, Stochastic |
-| Volume | 10 | On-Balance-Volume trend, above-average volume on up days |
-| Risk | 20 | Annual volatility, distance from 52-week high, ATR % |
-
-**≥75 STRONG BUY · ≥62 BUY · 45–62 HOLD · <45 AVOID/SELL**
-
-**Market filter:** in a BEAR market, every BUY becomes **WAIT**. In CAUTION, signals are downgraded by one level.
-
-**Confidence** = 70% of today's score + 30% of how well these rules did on that stock in the past (win rate and profit factor).
-
-### Risk management (this is what limits losses)
-- **Stop-loss:** just under the 20-day swing low, at most 2.5×ATR and at least 1×ATR below entry.
-- **Position size:** `capital × 1% ÷ (entry − stop)`, capped at 20% of capital per stock and 6 open positions.
-  If a stop is hit, you lose about 1% of your capital.
-- **Target 1 = entry + 2R:** sell half and move the stop to break-even. After that, the trade cannot become a loss.
-- **Target 2 = entry + 3.5R.** The rest follows a **trailing stop** at highest close − 3×ATR.
-- **Exit early** if the score drops below 45 (the trend is broken).
-
-### Backtests
-- **Per stock:** the exact rules above, with signals on day *t* and fills at the open of day *t+1* (no look-ahead) and 0.1% cost per side.
-- **Whole system:** all stocks together with your capital, slot limit and risk sizing, ranked by score,
-  compared with buy-and-hold of the index (return, CAGR, max drawdown, Sharpe, win rate).
-
-## 🔧 Customise: `config.json`
-| Key | Meaning |
-|---|---|
-| `watchlist` | Yahoo symbols. NSE stocks end in `.NS` (e.g. `RELIANCE.NS`), BSE in `.BO`, US stocks have no suffix (e.g. `AAPL`). |
-| `benchmark` | Market index for the regime filter (`^NSEI` Nifty 50, `^GSPC` S&P 500) |
-| `capital` | Money you plan to invest |
-| `risk_per_trade_pct` | Maximum loss per trade as % of capital (keep 0.5–1%) |
-| `max_position_pct`, `max_open_positions` | Diversification limits |
-| `portfolio` | Your actual buys: `symbol`, `buy_price`, `quantity`, `buy_date` |
-
-## 📁 Project layout
+Research scripts:
+```bash
+python research/fetch.py prices.pkl
+python research/explore.py prices.pkl
 ```
-run.py                  entry point: fetch → analyse → backtest → docs/data.json + data.js
-analyzer/indicators.py  SMA/EMA, RSI, MACD, ATR, ADX/DI, Bollinger, Stochastic, OBV, returns, volatility
-analyzer/strategy.py    5-pillar score, market regime, signals, stop/target/size, plain-English reasons
-analyzer/backtest.py    per-stock and whole-portfolio simulations
-analyzer/data.py        Yahoo Finance loader + offline demo data
-docs/index.html         the dashboard (no build step, works offline)
-.github/workflows/      scheduled automation + GitHub Pages deploy
+
+## Files
+```
+run.py                 daily pipeline → docs/data.json / data.js
+analyzer/lab.py        features, trend template, VCP detection, rotation + breakout backtest engines
+analyzer/universe.py   stock universe
+analyzer/indicators.py per-stock indicators for the detail view
+analyzer/strategy.py   plain-English technical notes
+analyzer/data.py       Yahoo Finance loaders (+ offline demo data)
+research/              parameter grid, out-of-sample validation, strategy exploration
+docs/index.html        dashboard (GitHub Pages)
 ```
