@@ -2,14 +2,14 @@ name: Daily stock analysis
 
 on:
   schedule:
-    # Indian market hours (IST = UTC+5:30), Mon-Fri:
-    # every hour from ~09:45 to ~15:45 IST, plus a final run after close (16:15 IST).
-    - cron: "15 4-10 * * 1-5"
+    # IST = UTC+5:30, Mon-Fri: a mid-session snapshot (12:45 IST) and the
+    # end-of-day run after the close (16:15 IST). The strategy uses daily closes.
+    - cron: "15 7 * * 1-5"
     - cron: "45 10 * * 1-5"
   workflow_dispatch: {}   # "Run workflow" button in the Actions tab
   push:
     branches: [main]
-    paths: ["config.json", "analyzer/**", "run.py"]
+    paths: ["config.json", "analyzer/**", "run.py", "docs/index.html"]
 
 permissions:
   contents: write

@@ -1,10 +1,8 @@
 #!/usr/bin/env python3
-"""Run the full daily analysis and write the dashboard data.
+"""Daily run of the Momentum Rotation system + VCP scanner -> docs/data.json / data.js
 
-    python run.py            # real market data from Yahoo Finance
-    python run.py --demo     # synthetic data (works offline, for testing)
-
-Then open docs/index.html in your browser.
+    python run.py           # real data (Yahoo Finance)
+    python run.py --demo    # synthetic data, offline test only
 """
 import argparse
 import json
@@ -17,206 +15,255 @@ import numpy as np
 import pandas as pd
 
 from analyzer import indicators as ind
-from analyzer import strategy as st
-from analyzer.backtest import backtest_portfolio, backtest_symbol
-from analyzer.data import demo_data, fetch_names, fetch_yahoo
+from analyzer import lab
+from analyzer.strategy import reasons
+from analyzer.data import demo_data, fetch_bulk
+from analyzer.universe import SYMBOLS
 
 ROOT = Path(__file__).parent
 DOCS = ROOT / "docs"
+BT_START = "2016-12-01"
+SPLIT = "2022-01-01"   # settings were chosen using data BEFORE this date only
 
 
-def r2(x):
+def r2(x, n=2):
     try:
         x = float(x)
-        return None if math.isnan(x) or math.isinf(x) else round(x, 2)
+        return None if math.isnan(x) or math.isinf(x) else round(x, n)
     except (TypeError, ValueError):
         return None
 
 
-def clean_json(o):
+def clean(o):
     if isinstance(o, dict):
-        return {k: clean_json(v) for k, v in o.items()}
+        return {str(k): clean(v) for k, v in o.items()}
     if isinstance(o, (list, tuple)):
-        return [clean_json(v) for v in o]
-    if isinstance(o, (np.floating, float)):
+        return [clean(v) for v in o]
+    if isinstance(o, (float, np.floating)):
         return r2(o)
     if isinstance(o, np.integer):
         return int(o)
-    if isinstance(o, np.bool_):
+    if isinstance(o, (np.bool_,)):
         return bool(o)
+    if isinstance(o, pd.Timestamp):
+        return str(o.date())
     return o
 
 
-def holding_advice(sym, h, d, sig, score):
-    """What to do with a stock you already own."""
-    since = d[d.index >= pd.Timestamp(h.get("buy_date", d.index[0]))]
-    if since.empty:
-        since = d.tail(1)
-    last = d.iloc[-1]
-    price, buy, qty = float(last["Close"]), float(h["buy_price"]), float(h["quantity"])
-    hi = float(since["Close"].max())
-    atr = float(last["ATR"])
-    first = since.iloc[0]
-    atr0 = float(first["ATR"]) if not np.isnan(first["ATR"]) else atr
-    swing0 = float(first["SWING_LOW"]) if not np.isnan(first["SWING_LOW"]) else buy - 2 * atr0
-    init_stop = st.initial_stop(buy, atr0, swing0)
-    risk = buy - init_stop
-    t1 = buy + st.T1_R * risk
-    trail = hi - st.TRAIL_ATR * atr
-    stop = max(init_stop, trail) if hi >= t1 else init_stop
-    if hi >= t1:
-        stop = max(stop, buy)  # once T1 was reached, protect break-even
-    pnl_pct = (price / buy - 1) * 100
-    if price <= stop:
-        action, why = "SELL NOW", f"Price closed below your stop-loss ({stop:.2f}). Exit to protect capital."
-    elif score is not None and score < st.HOLD_MIN:
-        action, why = "SELL", "The stock's score fell below 45: the uptrend is broken."
-    elif last["RSI"] > 80 and pnl_pct > 0:
-        action, why = "BOOK PARTIAL PROFIT", "RSI above 80 - very overbought. Sell half, keep the rest with a trailing stop."
-    elif hi >= t1:
-        action, why = "BOOK 50% / TRAIL", f"Target 1 ({t1:.2f}) was reached. If not done yet, sell half. Stop-loss is now trailing at {stop:.2f}."
-    elif sig in ("STRONG BUY",) and pnl_pct > 0:
-        action, why = "HOLD / CAN ADD", "Trend is strong and you are in profit."
-    else:
-        action, why = "HOLD", "Trend intact. Keep holding with the stop-loss below."
-    return {
-        "symbol": sym, "buy_price": buy, "quantity": qty, "buy_date": h.get("buy_date"),
-        "price": r2(price), "pnl_pct": r2(pnl_pct), "pnl": r2((price - buy) * qty),
-        "value": r2(price * qty), "stop": r2(stop), "target1": r2(t1),
-        "action": action, "why": why, "signal": sig,
-    }
+def short_stats(s):
+    return {k: s[k] for k in ("cagr", "mdd", "sharpe", "trades", "win", "pf", "nifty_cagr", "nifty_mdd", "ew_cagr", "ew_mdd")}
+
+
+def next_rebalance(last_date, freq):
+    days = pd.bdate_range(last_date + pd.Timedelta(days=1), periods=40)
+    alld = pd.DatetimeIndex([last_date]).append(days)
+    m = lab.calendar_mask(alld, freq)
+    for d, flag in zip(alld[1:], m[1:]):
+        if flag:
+            return d
+    return days[0]
 
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--demo", action="store_true", help="use synthetic data (offline test)")
-    ap.add_argument("--seed", type=int, default=7, help="random seed for --demo")
+    ap.add_argument("--demo", action="store_true")
+    ap.add_argument("--seed", type=int, default=7)
     ap.add_argument("--config", default=str(ROOT / "config.json"))
     args = ap.parse_args()
     cfg = json.loads(Path(args.config).read_text())
-    bench_sym = cfg["benchmark"]
-    symbols = list(dict.fromkeys(cfg["watchlist"]))
+    S = cfg["strategy"]
+    bench = cfg["benchmark"]
     held = [h["symbol"] for h in cfg.get("portfolio", []) if h.get("quantity", 0) > 0]
-    all_syms = list(dict.fromkeys(symbols + held))
+    syms = list(dict.fromkeys(SYMBOLS + cfg.get("extra_symbols", []) + held))
 
-    print(f"Fetching {len(all_syms)} symbols + benchmark ({'DEMO' if args.demo else 'Yahoo'})...")
+    print(f"Loading {len(syms)} symbols ({'DEMO' if args.demo else 'Yahoo'})...")
     if args.demo:
-        raw = demo_data([bench_sym] + all_syms, seed=args.seed)
-        failed, names = [], {}
+        data, failed = demo_data([bench] + syms, days=2700, seed=args.seed), []
     else:
-        raw, failed = fetch_yahoo([bench_sym] + all_syms, cfg.get("history_period", "3y"))
-        names = fetch_names(list(raw))
-    if bench_sym not in raw:
-        sys.exit(f"Could not load benchmark {bench_sym}; aborting.")
+        data, failed = fetch_bulk([bench] + syms)
+    if bench not in data:
+        sys.exit("Benchmark failed to load")
 
-    bench = ind.add_all(raw.pop(bench_sym))
-    regime = st.regime_frame(bench)
-    data, scores, results = {}, {}, []
-    for s, df in raw.items():
-        d = ind.add_all(df)
-        sc = st.score_frame(d, bench["RET_3M"], bench["RET_6M"])
-        data[s], scores[s] = d, sc["total"]
-        last, lsc = d.iloc[-1], sc.iloc[-1]
-        reg_now = regime.reindex(d.index).ffill().iloc[-1]
-        sig = st.signal_for(lsc["total"], last["Close"], last["SMA50"], last["SMA200"], reg_now)
-        bt = backtest_symbol(d, sc["total"], regime)
-        # Confidence blends today's score with how well these rules worked on THIS stock.
-        conf = lsc["total"] if not np.isnan(lsc["total"]) else 0
-        if bt["trades"] >= 3:
-            conf = 0.7 * conf + 0.3 * min(100, (bt["win_rate"] or 0) * 0.6 + min(bt["profit_factor"] or 0, 3) / 3 * 40)
-        tail = d.tail(260)
-        prev = d["Close"].iloc[-2]
-        results.append({
-            "symbol": s,
-            "name": names.get(s, s),
-            "price": r2(last["Close"]),
-            "change_pct": r2((last["Close"] / prev - 1) * 100),
-            "date": str(d.index[-1].date()),
-            "score": r2(lsc["total"]),
-            "pillars": {k: r2(lsc[k]) for k in st.PILLARS},
-            "confidence": r2(conf),
-            "signal": sig,
-            "plan": st.trade_plan(last, cfg) if sig in ("STRONG BUY", "BUY", "WATCH", "WAIT") else None,
-            "reasons": st.reasons(last, bench.iloc[-1]),
-            "ind": {k: r2(last[k]) for k in ("RSI", "MACD_HIST", "ADX", "ATR", "ATR_PCT", "SMA20", "SMA50", "SMA200",
-                                              "EMA20", "BB_PCTB", "STOCH_K", "VOL_RATIO", "RET_1M", "RET_3M", "RET_6M",
-                                              "RET_12M", "HIGH_52W", "LOW_52W", "FROM_HIGH", "VOLAT_ANN", "EXT_EMA20")},
-            "backtest": bt,
-            "chart": {
-                "dates": [str(x.date()) for x in tail.index],
-                "close": [r2(x) for x in tail["Close"]],
-                "sma50": [r2(x) for x in tail["SMA50"]],
-                "sma200": [r2(x) for x in tail["SMA200"]],
-                "rsi": [r2(x) for x in tail["RSI"]],
-                "score": [r2(x) for x in sc["total"].tail(260)],
-            },
-        })
+    P = lab.panel(data, bench)
+    F = lab.features(P)
+    C = P["Close"]
+    F["mkt_either"] = F["mkt_ok"] | (F["breadth"] > S["breadth_threshold"])
+    liquid = S["min_turnover_cr"] * 1e7
+    elig = C > F["sma200"]
+    cal = lab.calendar_mask(P["dates"], S["rebalance"])
+    rot_kw = dict(top=S["top_n"], calendar=cal, mkt="mkt_either", buffer=S["keep_buffer"], liquid=liquid,
+                  capital=cfg["capital"])
 
-    order = {"STRONG BUY": 0, "BUY": 1, "WATCH": 2, "WAIT": 3, "HOLD": 4, "AVOID": 5, "NO DATA": 6}
-    results.sort(key=lambda r: (order.get(r["signal"], 9), -(r["score"] or 0)))
+    print("Backtesting...")
+    full = lab.rotation(P, F, F["rs"], elig, start=BT_START, **rot_kw)
+    is_ = lab.rotation(P, F, F["rs"], elig, start=BT_START, end=SPLIT, **rot_kw)
+    oos = lab.rotation(P, F, F["rs"], elig, start=SPLIT, **rot_kw)
+    TT = lab.trend_template(P, F)
+    vcp_sig = (TT & (F["c1"] > F["c2"]) & (F["c2"] > F["c3"]) & (F["c3"] < 0.12)
+               & (F["vol10"] < F["vol50"]).shift(1) & (C > F["pivot"]) & (P["Volume"] > 1.5 * F["vol50"]))
+    bo_sig = TT & (C >= F["hi52"].shift(1)) & (P["Volume"] > 1.5 * F["vol50"])
+    comp = []
+    for name, fn in (
+        ("Momentum Rotation (this system)", lambda a, b: lab.rotation(P, F, F["rs"], elig, start=a, end=b, **rot_kw)),
+        ("VCP base breakout", lambda a, b: lab.run(P, F, vcp_sig, F["rs"], exit_mode="ema21", start=a, end=b, liquid=liquid)),
+        ("52-week-high breakout", lambda a, b: lab.run(P, F, bo_sig, F["rs"], exit_mode="sma50", start=a, end=b, liquid=liquid)),
+    ):
+        comp.append({"name": name, "is": short_stats(fn(BT_START, SPLIT)), "oos": short_stats(fn(SPLIT, None))})
 
-    # Today's suggested allocation: best buys, limited slots, risk-based sizing.
-    picks, used = [], 0.0
-    for r in results:
-        if r["signal"] in ("STRONG BUY", "BUY") and r["plan"] and r["plan"]["qty"] > 0 and len(picks) < cfg["max_open_positions"]:
-            if used + r["plan"]["invest"] <= cfg["capital"]:
-                picks.append({"symbol": r["symbol"], "name": r["name"], "signal": r["signal"], "score": r["score"],
-                              **{k: r["plan"][k] for k in ("entry", "stop", "target1", "target2", "qty", "invest", "max_loss")}})
-                used += r["plan"]["invest"]
+    # ---------- today's state ----------
+    last = len(P["dates"]) - 1
+    today = P["dates"][last]
+    syms_p = P["syms"]
+    rs_t = F["rs"].iloc[last]
+    el_t = (elig & (F["turnover"] > liquid)).iloc[last].fillna(False)
+    mkt_on = bool(F["mkt_either"].iloc[last])
+    ranked = [s for s in rs_t.sort_values(ascending=False).index if el_t.get(s, False)]
+    target = ranked[: S["top_n"]] if mkt_on else []
+    keep_zone = set(ranked[: int(S["top_n"] * S["keep_buffer"])]) if mkt_on else set()
+    model_pos = {syms_p[j]: p for j, p in full["positions"].items()}
+    kept = [s for s in model_pos if s in keep_zone]
+    sells = [s for s in model_pos if s not in keep_zone]
+    buys = [s for s in target if s not in model_pos][: max(0, S["top_n"] - len(kept))]
+    nxt = next_rebalance(today, S["rebalance"])
+    per_stock = cfg["capital"] / S["top_n"]
+    rank_pos = {s: i + 1 for i, s in enumerate(ranked)}
 
-    by_sym = {r["symbol"]: r for r in results}
+    def px(s):
+        return float(C[s].iloc[last])
+
+    model = []
+    for s, p in model_pos.items():
+        model.append({"symbol": s, "since": P["dates"][p["i"]], "entry": p["entry"], "price": px(s),
+                      "pnl_pct": (px(s) / p["entry"] - 1) * 100, "rank": rank_pos.get(s), "rs": rs_t.get(s),
+                      "action": "KEEP" if s in keep_zone else "SELL"})
+    model.sort(key=lambda m: m["rank"] or 999)
+    plan_buys = [{"symbol": s, "price": px(s), "rank": rank_pos[s], "rs": rs_t[s],
+                  "qty": int(per_stock // px(s)), "invest": int(per_stock // px(s)) * px(s)} for s in buys]
+    fresh = [{"symbol": s, "price": px(s), "rank": rank_pos[s], "rs": rs_t[s],
+              "qty": int(per_stock // px(s)), "invest": int(per_stock // px(s)) * px(s)} for s in target]
+
     holdings = []
     for h in cfg.get("portfolio", []):
-        if h.get("quantity", 0) > 0 and h.get("buy_price", 0) > 0 and h["symbol"] in data:
-            r = by_sym[h["symbol"]]
-            holdings.append(holding_advice(h["symbol"], h, data[h["symbol"]], r["signal"], r["score"]))
+        s = h["symbol"]
+        if h.get("quantity", 0) <= 0 or h.get("buy_price", 0) <= 0 or s not in C:
+            continue
+        p_now = px(s)
+        if not mkt_on:
+            act, why = "SELL", "Market health is OFF - the system moves to cash. Sell on the next rebalance day."
+        elif s in keep_zone:
+            act, why = "HOLD", f"Still among the strongest stocks (rank #{rank_pos[s]}). Keep holding."
+        elif s in rank_pos:
+            act, why = "SELL", f"Dropped to rank #{rank_pos[s]} - outside the top {int(S['top_n']*S['keep_buffer'])}. Sell on the next rebalance day and switch to a stronger stock."
+        else:
+            act, why = "SELL", "Below its 200-day average (downtrend) or too illiquid. Sell on the next rebalance day."
+        holdings.append({"symbol": s, "buy_price": h["buy_price"], "quantity": h["quantity"], "buy_date": h.get("buy_date"),
+                         "price": p_now, "pnl_pct": (p_now / h["buy_price"] - 1) * 100,
+                         "pnl": (p_now - h["buy_price"]) * h["quantity"], "value": p_now * h["quantity"],
+                         "rank": rank_pos.get(s), "action": act, "why": why})
 
-    print("Running portfolio backtest...")
-    pbt = backtest_portfolio(data, {s: v.dropna().to_dict() for s, v in scores.items()}, regime, bench["Close"], cfg)
+    # ---------- VCP scanner (what BananaPatterns-style screens look for) ----------
+    vcp_rows = []
+    tt_t = TT.iloc[last].fillna(False)
+    for s in syms_p:
+        if not tt_t.get(s, False):
+            continue
+        c1, c2, c3 = F["c1"][s].iloc[last], F["c2"][s].iloc[last], F["c3"][s].iloc[last]
+        if c1 > c2 > c3 and c3 < 0.12:
+            piv = float(F["pivot"][s].iloc[last])
+            vcp_rows.append({"symbol": s, "price": px(s), "pivot": piv, "stop": float(F["base_low"][s].iloc[last]),
+                             "to_pivot": (piv / px(s) - 1) * 100, "contractions": [c1 * 100, c2 * 100, c3 * 100],
+                             "vol_dry": bool(F["vol10"][s].iloc[last] < F["vol50"][s].iloc[last]),
+                             "breakout": bool(vcp_sig[s].iloc[last]), "rs": rs_t.get(s)})
+    vcp_rows.sort(key=lambda r: r["to_pivot"])
 
-    b = bench.iloc[-1]
-    reg_now = regime.iloc[-1]
-    advice = {
-        "BULL": "Market is in an uptrend. It is OK to buy the stocks marked BUY / STRONG BUY using the stop-losses shown.",
-        "CAUTION": "Market is mixed. Buy only STRONG signals, use smaller amounts, keep more cash.",
-        "BEAR": "Market is in a downtrend. Do NOT start new buys. Protect capital: keep cash, tighten stops on what you hold.",
-    }[reg_now]
-    counts = {k: sum(1 for r in results if r["signal"] == k) for k in order}
+    # ---------- per-stock table + detail ----------
+    tt_parts = {
+        "Price above 150 & 200-day avg": (C > F["sma150"]) & (C > F["sma200"]),
+        "150-day avg above 200-day avg": F["sma150"] > F["sma200"],
+        "200-day avg rising (1 month)": F["sma200"] > F["sma200"].shift(21),
+        "50-day avg above 150-day avg": F["sma50"] > F["sma150"],
+        "Price above 50-day avg": C > F["sma50"],
+        "At least 30% above 52-week low": C >= 1.3 * F["lo52"],
+        "Within 25% of 52-week high": C >= 0.75 * F["hi52"],
+        "Relative strength rank ≥ 70": F["rs"] >= 70,
+    }
+    bench_ind = ind.add_all(data[bench])
+    stocks = []
+    for s in syms_p:
+        if s not in data or np.isnan(C[s].iloc[last]):
+            continue
+        d = ind.add_all(data[s])
+        tail = d.tail(260)
+        rs_hist = F["rs"][s].reindex(tail.index)
+        checks = {k: bool(v[s].iloc[last]) if not pd.isna(v[s].iloc[last]) else False for k, v in tt_parts.items()}
+        lastrow = d.iloc[-1]
+        status = ("HOLD" if s in model_pos and s in keep_zone else "SELL" if s in model_pos
+                  else "BUY" if s in buys else "TOP" if s in target else "")
+        stocks.append({
+            "symbol": s, "price": px(s), "change_pct": (lastrow["Close"] / d["Close"].iloc[-2] - 1) * 100,
+            "rs": rs_t.get(s), "rank": rank_pos.get(s), "tt": sum(checks.values()), "checks": checks,
+            "status": status, "vcp": any(v["symbol"] == s for v in vcp_rows),
+            "ret": {"1M": lastrow["RET_1M"], "3M": lastrow["RET_3M"], "6M": lastrow["RET_6M"], "12M": lastrow["RET_12M"]},
+            "from_high": lastrow["FROM_HIGH"], "rsi": lastrow["RSI"], "vola": lastrow["VOLAT_ANN"],
+            "turnover_cr": F["turnover"][s].iloc[last] / 1e7,
+            "reasons": reasons(lastrow, bench_ind.iloc[-1]),
+            "chart": {"dates": [str(x.date()) for x in tail.index], "close": [r2(x) for x in tail["Close"]],
+                      "sma50": [r2(x) for x in tail["SMA50"]], "sma200": [r2(x) for x in tail["SMA200"]],
+                      "rs": [r2(x, 0) for x in rs_hist]},
+        })
+
+    # ---------- backtest curves ----------
+    cv = full["curve"]
+    b = P["bench"]["Close"].reindex(cv.index).ffill()
+    Cc = C.reindex(cv.index)
+    ew = (Cc / Cc.bfill().iloc[0]).mean(axis=1)
+    wk = slice(None, None, 5)
+    yearly = []
+    for y, grp in cv.groupby(cv.index.year):
+        bb = b[b.index.year == y]
+        start_v = cv[cv.index < grp.index[0]].iloc[-1] if (cv.index < grp.index[0]).any() else grp.iloc[0]
+        start_b = b[b.index < grp.index[0]].iloc[-1] if (b.index < grp.index[0]).any() else bb.iloc[0]
+        yearly.append({"year": int(y), "system": (grp.iloc[-1] / start_v - 1) * 100, "nifty": (bb.iloc[-1] / start_b - 1) * 100})
+    recent_trades = [{"symbol": syms_p[t[4]], "entry": t[0], "exit": t[1], "ret": t[2] * 100, "days": t[3]}
+                     for t in full["trade_list"][-15:]][::-1]
+
+    bi = P["bench"].iloc[-1]
+    bclose = P["bench"]["Close"]
     out = {
-        "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        "demo": args.demo,
-        "market_name": cfg.get("market_name", ""),
-        "currency": cfg.get("currency", ""),
-        "config": {k: cfg[k] for k in ("capital", "risk_per_trade_pct", "max_position_pct", "max_open_positions")},
+        "version": 2, "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "demo": args.demo,
+        "market_name": cfg.get("market_name"), "currency": cfg.get("currency", ""), "capital": cfg["capital"],
+        "strategy": S, "as_of": today, "next_rebalance": nxt, "last_rebalance": full["last_rebalance"],
         "market": {
-            "symbol": bench_sym, "price": r2(b["Close"]),
-            "change_pct": r2((b["Close"] / bench["Close"].iloc[-2] - 1) * 100),
-            "regime": reg_now, "advice": advice,
-            "rsi": r2(b["RSI"]), "sma50": r2(b["SMA50"]), "sma200": r2(b["SMA200"]),
-            "ret_1m": r2(b["RET_1M"]), "ret_3m": r2(b["RET_3M"]), "ret_12m": r2(b["RET_12M"]),
-            "breadth": r2(sum(1 for s in data if data[s]["Close"].iloc[-1] > data[s]["SMA200"].iloc[-1]) / max(len(data), 1) * 100),
-            "chart": {"dates": [str(x.date()) for x in bench.tail(260).index],
-                      "close": [r2(x) for x in bench["Close"].tail(260)],
-                      "sma50": [r2(x) for x in bench["SMA50"].tail(260)],
-                      "sma200": [r2(x) for x in bench["SMA200"].tail(260)]},
+            "symbol": bench, "price": bi["Close"], "change_pct": (bclose.iloc[-1] / bclose.iloc[-2] - 1) * 100,
+            "on": mkt_on, "index_uptrend": bool(F["mkt_ok"].iloc[last]), "breadth": F["breadth"].iloc[last],
+            "breadth_threshold": S["breadth_threshold"],
+            "sma50": bclose.rolling(50).mean().iloc[-1], "sma200": bclose.rolling(200).mean().iloc[-1],
+            "ret_1m": (bclose.iloc[-1] / bclose.iloc[-22] - 1) * 100, "ret_12m": (bclose.iloc[-1] / bclose.iloc[-253] - 1) * 100,
+            "chart": {"dates": [str(x.date()) for x in P["dates"][-260:]], "close": [r2(x) for x in bclose.iloc[-260:]],
+                      "sma200": [r2(x) for x in bclose.rolling(200).mean().iloc[-260:]],
+                      "breadth": [r2(x, 0) for x in F["breadth"].iloc[-260:]]},
         },
-        "counts": counts,
-        "picks": picks,
-        "cash_left": r2(cfg["capital"] - used),
-        "holdings": holdings,
-        "portfolio_backtest": pbt,
-        "stocks": results,
+        "model": model, "plan": {"sells": sells, "buys": plan_buys, "keeps": kept, "fresh": fresh,
+                                 "per_stock": per_stock},
+        "holdings": holdings, "vcp": vcp_rows, "stocks": stocks,
+        "backtest": {
+            "full": short_stats(full), "is": short_stats(is_), "oos": short_stats(oos), "split": SPLIT,
+            "start": cv.index[0], "end": cv.index[-1], "final": cv.iloc[-1], "capital": cfg["capital"],
+            "curve": {"dates": [str(x.date()) for x in cv.index[wk]], "system": [r2(x, 0) for x in cv.values[wk]],
+                      "nifty": [r2(x, 0) for x in (b / b.iloc[0] * cfg["capital"]).values[wk]],
+                      "ew": [r2(x, 0) for x in (ew / ew.iloc[0] * cfg["capital"]).values[wk]]},
+            "yearly": yearly, "compare": comp, "recent_trades": recent_trades,
+        },
         "failed": failed,
     }
-    out = clean_json(out)
+    out = clean(out)
     DOCS.mkdir(exist_ok=True)
-    payload = json.dumps(out, separators=(",", ":"), allow_nan=False)
+    payload = json.dumps(out, separators=(",", ":"), allow_nan=False, ensure_ascii=False)
     (DOCS / "data.json").write_text(payload)
     (DOCS / "data.js").write_text("window.MARKET_DATA=" + payload + ";\n")
-    print(f"Done. Regime={reg_now}. Picks: {[p['symbol'] for p in picks]}")
-    print(f"System backtest: {pbt['total_return']}% vs index {pbt['bench_return']}%, max DD {pbt['max_drawdown']}%")
-    if failed:
-        print("Failed symbols:", failed)
+    print(f"Done. Market {'ON' if mkt_on else 'OFF'} | model {len(model)} | sell {sells} | buy {buys}")
+    print(f"Backtest full CAGR {full['cagr']:.1f}% MDD {full['mdd']:.1f}% | OOS {oos['cagr']:.1f}% vs Nifty {oos['nifty_cagr']:.1f}%")
+    print(f"VCP setups: {len(vcp_rows)} | payload {len(payload)/1e6:.2f} MB | failed {failed}")
 
 
 if __name__ == "__main__":

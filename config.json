@@ -1,26 +1,20 @@
 {
-  "_help": "Edit this file to change what gets analysed. Symbols use Yahoo Finance format: NSE stocks end with .NS, BSE with .BO, US stocks have no suffix.",
+  "_help": "Settings for the Momentum Rotation system. Symbols use Yahoo Finance format (NSE stocks end with .NS).",
   "market_name": "India (NSE)",
   "currency": "₹",
   "benchmark": "^NSEI",
   "capital": 100000,
-  "risk_per_trade_pct": 1.0,
-  "max_position_pct": 20,
-  "max_open_positions": 6,
-  "history_period": "3y",
-  "watchlist": [
-    "RELIANCE.NS", "TCS.NS", "HDFCBANK.NS", "ICICIBANK.NS", "INFY.NS",
-    "BHARTIARTL.NS", "ITC.NS", "SBIN.NS", "LT.NS", "HINDUNILVR.NS",
-    "KOTAKBANK.NS", "AXISBANK.NS", "BAJFINANCE.NS", "MARUTI.NS", "SUNPHARMA.NS",
-    "TITAN.NS", "ASIANPAINT.NS", "ULTRACEMCO.NS", "NTPC.NS", "POWERGRID.NS",
-    "M&M.NS", "EICHERMOT.NS", "TATASTEEL.NS", "HCLTECH.NS", "WIPRO.NS",
-    "NESTLEIND.NS", "ONGC.NS", "COALINDIA.NS", "ADANIPORTS.NS", "BAJAJ-AUTO.NS",
-    "DRREDDY.NS", "CIPLA.NS", "TECHM.NS", "HEROMOTOCO.NS", "TRENT.NS",
-    "NIFTYBEES.NS", "GOLDBEES.NS"
-  ],
+  "strategy": {
+    "top_n": 12,
+    "rebalance": "2W",
+    "keep_buffer": 1.5,
+    "breadth_threshold": 50,
+    "min_turnover_cr": 20
+  },
+  "extra_symbols": [],
   "portfolio": [
     {
-      "_example": "Add the stocks you actually bought here. Delete this example entry.",
+      "_example": "Add stocks you actually bought here (quantity > 0). This example is ignored because quantity is 0.",
       "symbol": "INFY.NS",
       "buy_price": 1500,
       "quantity": 0,

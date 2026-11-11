@@ -62,3 +62,21 @@ def demo_data(symbols, days=780, seed=7):
         v = rng.lognormal(13, 0.4, days) * (1 + 3 * np.abs(r))
         out[s] = pd.DataFrame({"Open": op, "High": hi, "Low": lo, "Close": close, "Volume": v}, index=idx)
     return out
+
+
+def fetch_bulk(symbols, period="11y"):
+    """One batched Yahoo download for many symbols (much faster, fewer rate limits)."""
+    import yfinance as yf
+    df = yf.download(symbols, period=period, interval="1d", auto_adjust=True, group_by="ticker",
+                     progress=False, threads=True)
+    out, failed = {}, []
+    for s in symbols:
+        try:
+            d = _clean(df[s].copy())
+            if len(d) >= 260:
+                out[s] = d
+            else:
+                failed.append(s)
+        except Exception:
+            failed.append(s)
+    return out, failed
