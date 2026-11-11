@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Daily Stock Analyst</title>
+<meta name="description" content="Daily multi-factor stock analysis: where to buy, where to put the stop-loss, when to take profit.">
+<style>
+:root{
+  --bg:#f6f7f9;--panel:#ffffff;--panel2:#f0f2f5;--text:#141821;--muted:#5d6675;--line:#e1e5eb;
+  --accent:#2563eb;--green:#0f8a4f;--green-bg:#e3f5ec;--red:#c62f2f;--red-bg:#fbe7e7;
+  --amber:#a8650a;--amber-bg:#fdf1dc;--blue-bg:#e5edff;--grey-bg:#eceef2;
+  --c1:#2563eb;--c2:#d97706;--c3:#7c3aed;--shadow:0 1px 2px rgba(16,24,40,.06),0 1px 3px rgba(16,24,40,.08);
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0d1117;--panel:#151b23;--panel2:#1c2330;--text:#e6e9ef;--muted:#9aa4b2;--line:#2a3340;
+  --accent:#6ea0ff;--green:#3fcf8e;--green-bg:#123325;--red:#ff6b6b;--red-bg:#3a1717;
+  --amber:#f2b552;--amber-bg:#3a2a0f;--blue-bg:#16264a;--grey-bg:#232b37;
+  --c1:#6ea0ff;--c2:#f2b552;--c3:#b48cff;--shadow:none;}}
+:root[data-theme="dark"]{
+  --bg:#0d1117;--panel:#151b23;--panel2:#1c2330;--text:#e6e9ef;--muted:#9aa4b2;--line:#2a3340;
+  --accent:#6ea0ff;--green:#3fcf8e;--green-bg:#123325;--red:#ff6b6b;--red-bg:#3a1717;
+  --amber:#f2b552;--amber-bg:#3a2a0f;--blue-bg:#16264a;--grey-bg:#232b37;
+  --c1:#6ea0ff;--c2:#f2b552;--c3:#b48cff;--shadow:none;}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+.wrap{max-width:1280px;margin:0 auto;padding:16px}
+header{display:flex;flex-wrap:wrap;align-items:center;gap:12px;justify-content:space-between;margin-bottom:16px}
+h1{font-size:22px;margin:0}
+h2{font-size:17px;margin:0 0 12px}
+h3{font-size:14px;margin:14px 0 8px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+.muted{color:var(--muted)}
+.small{font-size:12px}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px;box-shadow:var(--shadow);margin-bottom:16px;min-width:0}
+.grid{display:grid;gap:16px}
+.g2{grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px}
+.kpi{background:var(--panel2);border-radius:10px;padding:10px 12px}
+.kpi .l{font-size:12px;color:var(--muted)}
+.kpi .v{font-size:20px;font-weight:650;font-variant-numeric:tabular-nums}
+.btn{background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:6px 12px;cursor:pointer;font:inherit}
+.btn:hover{border-color:var(--accent)}
+.btn.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+.tag{display:inline-block;padding:2px 9px;border-radius:999px;font-size:12px;font-weight:650;white-space:nowrap}
+.s-STRONG{background:var(--green);color:#fff}
+.s-BUY{background:var(--green-bg);color:var(--green)}
+.s-WATCH{background:var(--blue-bg);color:var(--accent)}
+.s-WAIT{background:var(--amber-bg);color:var(--amber)}
+.s-HOLD{background:var(--grey-bg);color:var(--muted)}
+.s-AVOID,.s-SELL{background:var(--red-bg);color:var(--red)}
+.s-BOOK{background:var(--amber-bg);color:var(--amber)}
+.up{color:var(--green)}.dn{color:var(--red)}
+.regime{font-size:28px;font-weight:750;letter-spacing:.02em}
+.r-BULL{color:var(--green)}.r-BEAR{color:var(--red)}.r-CAUTION{color:var(--amber)}
+.banner{border-radius:10px;padding:12px 14px;margin-bottom:16px;font-weight:550}
+.banner.warn{background:var(--amber-bg);color:var(--amber)}
+.banner.bad{background:var(--red-bg);color:var(--red)}
+.tablewrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
+table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}
+th,td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
+th:first-child,td:first-child{text-align:left}
+th{font-size:12px;color:var(--muted);font-weight:600;cursor:pointer;user-select:none;position:sticky;top:0;background:var(--panel)}
+tbody tr{cursor:pointer}
+tbody tr:hover{background:var(--panel2)}
+td.l{text-align:left}
+.bar{display:inline-block;width:70px;height:7px;border-radius:4px;background:var(--panel2);vertical-align:middle;margin-right:6px;overflow:hidden}
+.bar i{display:block;height:100%;border-radius:4px}
+.toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px}
+input[type=search]{background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:6px 10px;font:inherit;min-width:180px;flex:1;max-width:280px}
+svg{display:block;width:100%;height:auto}
+svg text{fill:var(--muted);font-size:11px}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin-top:6px}
+.legend i{display:inline-block;width:14px;height:3px;border-radius:2px;vertical-align:middle;margin-right:5px}
+.reasons{list-style:none;padding:0;margin:0}
+.reasons li{padding:6px 0 6px 26px;position:relative;border-bottom:1px dashed var(--line)}
+.reasons li:before{position:absolute;left:4px;top:5px;font-weight:700}
+.reasons li.g:before{content:"✓";color:var(--green)}
+.reasons li.b:before{content:"✗";color:var(--red)}
+.reasons li.n:before{content:"•";color:var(--muted)}
+.plan{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px}
+.plan div{background:var(--panel2);border-radius:8px;padding:8px 10px}
+.plan b{display:block;font-size:16px;font-variant-numeric:tabular-nums}
+.plan span{font-size:12px;color:var(--muted)}
+.pill-row{display:grid;grid-template-columns:110px 1fr 54px;gap:8px;align-items:center;margin:6px 0;font-size:13px}
+.pill-row .bar{width:100%;height:9px;margin:0}
+#detail{position:fixed;inset:0;background:rgba(0,0,0,.45);display:none;z-index:20;overflow-y:auto;padding:16px}
+#detail .panel{max-width:1000px;margin:0 auto}
+.close{float:right}
+details{background:var(--panel2);border-radius:8px;padding:10px 12px;margin:8px 0}
+summary{cursor:pointer;font-weight:600}
+.empty{padding:18px;text-align:center;color:var(--muted)}
+footer{font-size:12px;color:var(--muted);text-align:center;padding:20px 0}
+@media (max-width:600px){.wrap{padding:12px 16px}.regime{font-size:22px}h1{font-size:19px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <div>
+    <h1>📈 Daily Stock Analyst</h1>
+    <div class="muted small" id="updated">Loading…</div>
+  </div>
+  <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+    <span class="muted small" id="countdown"></span>
+    <button class="btn" id="refresh">↻ Refresh</button>
+    <button class="btn" id="theme" title="Toggle theme">◐</button>
+  </div>
+</header>
+
+<div id="banners"></div>
+
+<div class="grid g2">
+  <section class="panel">
+    <h2>1 · How is the market today?</h2>
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
+      <div><div class="muted small">Market mood</div><div class="regime" id="regime">–</div></div>
+      <div style="text-align:right"><div class="muted small" id="benchName"></div><div class="kpi" style="background:none;padding:0"><div class="v" id="benchPx">–</div></div><div id="benchChg"></div></div>
+    </div>
+    <p id="advice" style="font-weight:550"></p>
+    <div id="benchChart"></div>
+    <div class="legend"><span><i style="background:var(--c1)"></i>Index</span><span><i style="background:var(--c2)"></i>50-day avg</span><span><i style="background:var(--c3)"></i>200-day avg</span></div>
+    <div class="kpis" style="margin-top:12px" id="mktKpis"></div>
+  </section>
+
+  <section class="panel">
+    <h2>2 · What should I buy today?</h2>
+    <p class="muted small" style="margin-top:-6px">Best-ranked stocks, sized so that if the stop-loss is hit you lose at most <b id="riskPct"></b> of your capital per trade.</p>
+    <div id="picks"></div>
+  </section>
+</div>
+
+<section class="panel">
+  <h2>3 · My holdings — hold or sell?</h2>
+  <div id="holdings"></div>
+</section>
+
+<section class="panel">
+  <h2>4 · Full watchlist analysis</h2>
+  <div class="toolbar" id="filters"></div>
+  <div class="tablewrap" style="max-height:640px;overflow-y:auto">
+    <table id="tbl">
+      <thead><tr>
+        <th data-k="symbol">Stock</th><th data-k="price">Price</th><th data-k="change_pct">Day %</th>
+        <th data-k="signal">Signal</th><th data-k="score">Score</th><th data-k="confidence">Confidence</th>
+        <th data-k="rsi">RSI</th><th data-k="r6">6M %</th><th data-k="fh">From 52W high</th>
+        <th data-k="win">Hist. win %</th><th data-k="bt">Strategy vs hold</th>
+      </tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+  <p class="muted small">Click any row for the full breakdown, chart and trade plan.</p>
+</section>
+
+<section class="panel">
+  <h2>5 · Would this system have made money? (whole-system backtest)</h2>
+  <p class="muted small" style="margin-top:-6px">The exact same rules simulated on past data across the whole watchlist with your capital, position limits, stop-losses and 0.1% cost per trade — compared with simply buying the index.</p>
+  <div class="kpis" id="btKpis"></div>
+  <div id="btChart" style="margin-top:12px"></div>
+  <div class="legend"><span><i style="background:var(--c1)"></i>This system</span><span><i style="background:var(--c2)"></i>Buy &amp; hold index</span></div>
+</section>
+
+<section class="panel">
+  <h2>6 · Beginner's guide — read this first</h2>
+  <details open><summary>Your daily 5-minute routine</summary>
+    <ol>
+      <li><b>Check the market mood (box 1).</b> GREEN “BULL” = you may buy. AMBER “CAUTION” = buy small, only strong signals. RED “BEAR” = do not buy anything new.</li>
+      <li><b>Check your holdings (box 3).</b> If it says <span class="tag s-SELL">SELL NOW</span>, sell that stock — the stop-loss was hit. Do not “wait for it to come back”. That is how small losses become big ones.</li>
+      <li><b>New buys (box 2).</b> Buy the quantity shown, near the entry price. <b>Immediately</b> place a stop-loss order at the stop price in your broker app (Zerodha/Groww/Upstox all support “SL” or “GTT” orders).</li>
+      <li><b>Taking profit.</b> When price reaches Target 1, sell half. Move your stop-loss up to your buy price — now that trade can no longer lose money. Let the other half run; the dashboard will tell you when the trailing stop is hit.</li>
+      <li><b>Record your trade</b> in <code>config.json → portfolio</code> (symbol, buy price, quantity, date) so box 3 can track it.</li>
+    </ol>
+  </details>
+  <details><summary>How the algorithm decides (the score)</summary>
+    <p>Each stock gets a score out of 100 from five independent pillars, recalculated every day:</p>
+    <ul>
+      <li><b>Trend (30)</b> — price vs 50/200-day averages, slope of the 50-day average, ADX trend strength.</li>
+      <li><b>Momentum (25)</b> — RSI in the healthy 50–68 zone, MACD, and whether it beat the index over 3 and 6 months (relative strength).</li>
+      <li><b>Entry quality (15)</b> — is price near its 20-day average (good) or stretched far above it (wait)? Bollinger %B and Stochastic.</li>
+      <li><b>Volume (10)</b> — On-Balance-Volume trend and volume on up-days: are big buyers involved?</li>
+      <li><b>Risk (20)</b> — low volatility, near its 52-week high, small daily range (ATR).</li>
+    </ul>
+    <p><b>≥75 → STRONG BUY, ≥62 → BUY, 45–62 → HOLD, &lt;45 → AVOID/SELL.</b> Then the <b>market filter</b> overrides: in a BEAR market every BUY becomes WAIT. “Confidence” blends the score with how well these rules worked on that same stock historically.</p>
+  </details>
+  <details><summary>How the stop-loss, targets and quantity are calculated</summary>
+    <ul>
+      <li><b>Stop-loss</b>: just below the lowest price of the last 20 days, but never more than 2.5 × ATR (average daily move) below your entry, and never closer than 1 ATR (so normal noise doesn't kick you out).</li>
+      <li><b>Risk per share (R)</b> = entry − stop. <b>Target 1</b> = entry + 2R, <b>Target 2</b> = entry + 3.5R. Each winner is worth 2–3.5× each loser, so you can be wrong half the time and still make money.</li>
+      <li><b>Quantity</b> = (capital × risk %) ÷ R, capped at the max % of capital per stock. With ₹1,00,000 and 1% risk, a stop-loss hit costs you about ₹1,000 — not your whole account.</li>
+      <li><b>Trailing stop</b>: after Target 1, the stop follows price up at (highest close − 3 × ATR), locking in profit.</li>
+    </ul>
+  </details>
+  <details><summary>Glossary</summary>
+    <ul>
+      <li><b>SMA 50 / 200</b> — average closing price of the last 50 / 200 days. Price above = uptrend.</li>
+      <li><b>RSI</b> — 0–100 speed of price moves. Above 70 = overbought (expensive short-term), below 30 = oversold.</li>
+      <li><b>MACD</b> — difference of two moving averages. Positive and rising = momentum up.</li>
+      <li><b>ADX</b> — trend strength (not direction). Above 25 = strong trend.</li>
+      <li><b>ATR</b> — the average size of one day's move in rupees. Used to size stops.</li>
+      <li><b>Drawdown</b> — biggest fall from a peak. A −20% drawdown means the account fell 20% from its best value at some point.</li>
+      <li><b>Win rate / profit factor</b> — % of trades that made money / total profits ÷ total losses (above 1.5 is good).</li>
+      <li><b>ETF</b> — NIFTYBEES tracks the Nifty 50 index; GOLDBEES tracks gold. Simplest way for a beginner to invest.</li>
+    </ul>
+  </details>
+  <details><summary>⚠️ Honest truth about “no loss”</summary>
+    <p><b>No algorithm in the world can guarantee zero losses</b> — anyone who promises that is lying or running a scam. What this system does instead is the thing professionals actually do: <b>keep every loss small and planned</b> (stop-loss + 1% risk rule), <b>let winners run</b> (targets + trailing stop), and <b>stay out of falling markets</b> (regime filter). Expect roughly 35–55% of individual trades to be small losers; the profit comes from winners being much larger.</p>
+    <p>Start with a small amount you can afford to lose, or paper-trade for a month first. Past performance does not guarantee future results. This is an educational tool, not SEBI-registered investment advice.</p>
+  </details>
+</section>
+
+<footer>Data: Yahoo Finance (delayed). Updated automatically on market days by GitHub Actions. Educational use only — not investment advice.</footer>
+</div>
+
+<div id="detail"><div class="panel" id="detailBody"></div></div>
+
+<script src="data.js"></script>
+<script>
+(function(){
+const $=s=>document.querySelector(s);
+const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+let D=window.MARKET_DATA, filter="ALL", sortK=null, sortDir=1, query="";
+const REFRESH_SEC=300; let left=REFRESH_SEC;
+
+// theme
+try{const t=localStorage.getItem("theme"); if(t) document.documentElement.dataset.theme=t;}catch(e){}
+$("#theme").onclick=()=>{const cur=document.documentElement.dataset.theme||(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light");
+  const n=cur==="dark"?"light":"dark"; document.documentElement.dataset.theme=n; try{localStorage.setItem("theme",n)}catch(e){} if(D) render();};
+
+const cur=()=>D.currency||"";
+const fmt=(x,d=2)=>x==null?"–":Number(x).toLocaleString("en-IN",{minimumFractionDigits:d,maximumFractionDigits:d});
+const money=(x,d=0)=>x==null?"–":cur()+fmt(x,d);
+const pct=(x,d=1)=>x==null?"–":`<span class="${x>=0?"up":"dn"}">${x>=0?"+":""}${fmt(x,d)}%</span>`;
+const tagCls=s=>"s-"+String(s).split(" ")[0].replace("/","");
+const tag=s=>`<span class="tag ${tagCls(s)}">${esc(s)}</span>`;
+const short=s=>String(s).replace(/\.(NS|BO)$/,"");
+const scoreColor=v=>v>=75?"var(--green)":v>=62?"var(--green)":v>=45?"var(--amber)":"var(--red)";
+const bar=(v,max=100)=>`<span class="bar"><i style="width:${Math.max(0,Math.min(100,v/max*100))}%;background:${scoreColor(v/max*100)}"></i></span>`;
+
+// ---------- SVG line chart ----------
+function lineChart(series,dates,opts={}){
+  const W=opts.w||900,H=opts.h||260,pl=56,pr=12,pt=10,pb=24;
+  const all=series.flatMap(s=>s.data).filter(v=>v!=null);
+  (opts.hlines||[]).forEach(h=>all.push(h.y));
+  if(!all.length) return '<div class="empty">No data</div>';
+  let mn=opts.min??Math.min(...all), mx=opts.max??Math.max(...all); if(mn===mx){mn-=1;mx+=1}
+  const pad=(mx-mn)*0.05; if(opts.min==null) mn-=pad; if(opts.max==null) mx+=pad;
+  const n=dates.length, x=i=>pl+(W-pl-pr)*i/Math.max(1,n-1), y=v=>pt+(H-pt-pb)*(1-(v-mn)/(mx-mn));
+  let g="";
+  for(let k=0;k<=4;k++){const v=mn+(mx-mn)*k/4; g+=`<line x1="${pl}" x2="${W-pr}" y1="${y(v)}" y2="${y(v)}" stroke="var(--line)" stroke-width="1"/><text x="${pl-6}" y="${y(v)+4}" text-anchor="end">${fmt(v,v>=1000?0:1)}</text>`;}
+  for(let k=0;k<5;k++){const i=Math.round((n-1)*k/4); if(dates[i]) g+=`<text x="${x(i)}" y="${H-6}" text-anchor="${k===0?"start":k===4?"end":"middle"}">${dates[i].slice(2,7)}</text>`;}
+  (opts.hlines||[]).forEach(h=>{g+=`<line x1="${pl}" x2="${W-pr}" y1="${y(h.y)}" y2="${y(h.y)}" stroke="${h.c}" stroke-dasharray="5 4" stroke-width="1.5"/><text x="${W-pr-4}" y="${y(h.y)-4}" text-anchor="end" style="fill:${h.c}">${esc(h.l)} ${fmt(h.y)}</text>`;});
+  series.forEach(s=>{let d="",pen=false; s.data.forEach((v,i)=>{if(v==null){pen=false;return} d+=(pen?"L":"M")+x(i).toFixed(1)+" "+y(v).toFixed(1); pen=true;});
+    g+=`<path d="${d}" fill="none" stroke="${s.c}" stroke-width="${s.w||2}" stroke-linejoin="round" stroke-linecap="round"/>`;});
+  // hover
+  const id="c"+Math.random().toString(36).slice(2);
+  g+=`<line id="${id}l" y1="${pt}" y2="${H-pb}" stroke="var(--muted)" stroke-width="1" visibility="hidden"/><text id="${id}t" y="${pt+12}" style="fill:var(--text);font-weight:600"></text><rect x="${pl}" y="${pt}" width="${W-pl-pr}" height="${H-pt-pb}" fill="transparent" data-chart="${id}"/>`;
+  setTimeout(()=>{const r=document.querySelector(`[data-chart="${id}"]`); if(!r) return; const svg=r.ownerSVGElement;
+    r.addEventListener("mousemove",e=>{const b=svg.getBoundingClientRect(); const px=(e.clientX-b.left)/b.width*W; const i=Math.max(0,Math.min(n-1,Math.round((px-pl)/(W-pl-pr)*(n-1))));
+      const l=document.getElementById(id+"l"),t=document.getElementById(id+"t"); l.setAttribute("x1",x(i));l.setAttribute("x2",x(i));l.setAttribute("visibility","visible");
+      t.textContent=dates[i]+"  "+series.map(s=>s.name+": "+fmt(s.data[i])).join("  ·  "); t.setAttribute("x",x(i)>W/2?x(i)-6:x(i)+6); t.setAttribute("text-anchor",x(i)>W/2?"end":"start");});
+    r.addEventListener("mouseleave",()=>{document.getElementById(id+"l").setAttribute("visibility","hidden");document.getElementById(id+"t").textContent="";});},0);
+  return `<svg viewBox="0 0 ${W} ${H}" role="img">${g}</svg>`;
+}
+
+// ---------- sections ----------
+function renderMarket(){
+  const m=D.market;
+  $("#regime").innerHTML=`<span class="r-${m.regime}">${{BULL:"🟢 BULL",CAUTION:"🟠 CAUTION",BEAR:"🔴 BEAR"}[m.regime]||m.regime}</span>`;
+  $("#benchName").textContent=(D.market_name||"")+" · "+m.symbol;
+  $("#benchPx").textContent=fmt(m.price);
+  $("#benchChg").innerHTML=pct(m.change_pct,2)+' <span class="muted small">today</span>';
+  $("#advice").textContent=m.advice;
+  $("#benchChart").innerHTML=lineChart([{name:"Index",data:m.chart.close,c:"var(--c1)"},{name:"50d",data:m.chart.sma50,c:"var(--c2)",w:1.5},{name:"200d",data:m.chart.sma200,c:"var(--c3)",w:1.5}],m.chart.dates,{h:220});
+  const k=[["1 month",pct(m.ret_1m)],["3 months",pct(m.ret_3m)],["12 months",pct(m.ret_12m)],["Index RSI",fmt(m.rsi,0)],["Stocks in uptrend",fmt(m.breadth,0)+"%"]];
+  $("#mktKpis").innerHTML=k.map(([l,v])=>`<div class="kpi"><div class="l">${l}</div><div class="v">${v}</div></div>`).join("");
+}
+function renderPicks(){
+  $("#riskPct").textContent=D.config.risk_per_trade_pct+"%";
+  if(!D.picks.length){
+    const why=D.market.regime==="BEAR"?"The market is falling, so the system is staying in cash — protecting your money is the priority. Check again tomorrow.":"No stock passes all the filters today. Waiting is a valid decision — keep your cash.";
+    $("#picks").innerHTML=`<div class="empty">🛡️ <b>No buys today.</b><br>${why}</div>`; return;}
+  let h=`<div class="tablewrap"><table><thead><tr><th>Stock</th><th>Buy qty</th><th>Entry ≈</th><th>Stop-loss</th><th>Target 1</th><th>Target 2</th><th>Invest</th><th>Max loss</th></tr></thead><tbody>`;
+  D.picks.forEach(p=>{h+=`<tr data-s="${esc(p.symbol)}"><td>${tag(p.signal)} <b>${esc(short(p.symbol))}</b></td><td><b>${p.qty}</b></td><td>${money(p.entry,2)}</td><td class="dn">${money(p.stop,2)}</td><td class="up">${money(p.target1,2)}</td><td class="up">${money(p.target2,2)}</td><td>${money(p.invest)}</td><td class="dn">${money(p.max_loss)}</td></tr>`;});
+  h+=`</tbody></table></div><p class="small muted">Total to invest: <b>${money(D.config.capital-D.cash_left)}</b> · Keep in cash: <b>${money(D.cash_left)}</b> of ${money(D.config.capital)}</p>`;
+  $("#picks").innerHTML=h;
+}
+function renderHoldings(){
+  if(!D.holdings.length){$("#holdings").innerHTML=`<div class="empty">No holdings recorded yet. After you buy, add the stock to <code>portfolio</code> in <code>config.json</code> (symbol, buy_price, quantity, buy_date) and this box will tell you every day whether to hold or sell.</div>`;return;}
+  let tv=0,tp=0, h=`<div class="tablewrap"><table><thead><tr><th>Stock</th><th>Action</th><th>Qty</th><th>Bought</th><th>Now</th><th>P&amp;L</th><th>Stop-loss</th><th>Target 1</th><th style="text-align:left">Why</th></tr></thead><tbody>`;
+  D.holdings.forEach(x=>{tv+=x.value||0;tp+=x.pnl||0; h+=`<tr data-s="${esc(x.symbol)}"><td><b>${esc(short(x.symbol))}</b></td><td>${tag(x.action)}</td><td>${fmt(x.quantity,0)}</td><td>${money(x.buy_price,2)}</td><td>${money(x.price,2)}</td><td>${pct(x.pnl_pct)}<br><span class="small">${money(x.pnl)}</span></td><td>${money(x.stop,2)}</td><td>${money(x.target1,2)}</td><td class="l small" style="white-space:normal;min-width:220px">${esc(x.why)}</td></tr>`;});
+  h+=`</tbody></table></div><p class="small muted">Holdings value <b>${money(tv)}</b> · Unrealised P&amp;L <b class="${tp>=0?"up":"dn"}">${money(tp)}</b></p>`;
+  $("#holdings").innerHTML=h;
+}
+const val=(s,k)=>({symbol:s.symbol,price:s.price,change_pct:s.change_pct,signal:["STRONG BUY","BUY","WATCH","WAIT","HOLD","AVOID","NO DATA"].indexOf(s.signal),score:s.score,confidence:s.confidence,rsi:s.ind.RSI,r6:s.ind.RET_6M,fh:s.ind.FROM_HIGH,win:s.backtest.win_rate,bt:s.backtest.total_return-s.backtest.buy_hold})[k];
+function renderFilters(){
+  const c=D.counts, keys=["ALL","STRONG BUY","BUY","WATCH","WAIT","HOLD","AVOID"];
+  $("#filters").innerHTML=keys.map(k=>`<button class="btn ${filter===k?"on":""}" data-f="${k}">${k} ${k==="ALL"?D.stocks.length:(c[k]||0)}</button>`).join("")+`<input type="search" id="q" placeholder="Search stock…" value="${esc(query)}">`;
+  $("#filters").querySelectorAll("[data-f]").forEach(b=>b.onclick=()=>{filter=b.dataset.f;renderFilters();renderTable();});
+  $("#q").oninput=e=>{query=e.target.value.toLowerCase();renderTable();};
+}
+function renderTable(){
+  let rows=D.stocks.filter(s=>(filter==="ALL"||s.signal===filter)&&(!query||(s.symbol+" "+s.name).toLowerCase().includes(query)));
+  if(sortK) rows=[...rows].sort((a,b)=>{const x=val(a,sortK),y=val(b,sortK); if(x==null) return 1; if(y==null) return -1; return (x>y?1:x<y?-1:0)*sortDir;});
+  $("#tbl tbody").innerHTML=rows.map(s=>{const bt=s.backtest;
+    return `<tr data-s="${esc(s.symbol)}"><td><b>${esc(short(s.symbol))}</b><br><span class="small muted">${esc(s.name!==s.symbol?s.name:"")}</span></td>
+    <td>${fmt(s.price)}</td><td>${pct(s.change_pct,2)}</td><td>${tag(s.signal)}</td>
+    <td>${bar(s.score||0)}${fmt(s.score,0)}</td><td>${fmt(s.confidence,0)}%</td><td>${fmt(s.ind.RSI,0)}</td><td>${pct(s.ind.RET_6M)}</td><td>${pct(s.ind.FROM_HIGH)}</td>
+    <td>${bt.win_rate==null?"–":fmt(bt.win_rate,0)+"%"} <span class="small muted">(${bt.trades})</span></td><td>${pct(bt.total_return,0)} <span class="small muted">vs ${fmt(bt.buy_hold,0)}%</span></td></tr>`;}).join("")||`<tr><td colspan="11" class="empty">Nothing matches.</td></tr>`;
+}
+function renderBacktest(){
+  const b=D.portfolio_backtest;
+  const k=[["System return",pct(b.total_return)],["Index return",pct(b.bench_return)],["System CAGR / yr",pct(b.cagr)],["System worst drop",pct(b.max_drawdown)],["Index worst drop",pct(b.bench_drawdown)],["Sharpe ratio",fmt(b.sharpe)],["Trades",b.trades],["Winning trades",b.win_rate==null?"–":fmt(b.win_rate,0)+"%"],["Final value",money(b.final_equity)]];
+  $("#btKpis").innerHTML=k.map(([l,v])=>`<div class="kpi"><div class="l">${l}</div><div class="v">${v}</div></div>`).join("");
+  $("#btChart").innerHTML=lineChart([{name:"System",data:b.curve.equity,c:"var(--c1)"},{name:"Index",data:b.curve.bench,c:"var(--c2)"}],b.curve.dates,{h:240})+`<p class="small muted">${b.start} → ${b.end}</p>`;
+}
+function openDetail(sym){
+  const s=D.stocks.find(x=>x.symbol===sym); if(!s) return;
+  const p=s.plan, i=s.ind, bt=s.backtest, hl=[];
+  if(p){hl.push({y:p.stop,c:"var(--red)",l:"Stop"},{y:p.target1,c:"var(--green)",l:"T1"},{y:p.target2,c:"var(--green)",l:"T2"});}
+  const pil={trend:["Trend",30],momentum:["Momentum",25],entry:["Entry quality",15],volume:["Volume",10],risk:["Risk",20]};
+  let h=`<button class="btn close" id="x">✕ Close</button><h2>${esc(short(s.symbol))} <span class="muted" style="font-weight:400">${esc(s.name!==s.symbol?s.name:"")}</span></h2>
+  <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin-bottom:10px">${tag(s.signal)} <span style="font-size:22px;font-weight:700">${money(s.price,2)}</span> ${pct(s.change_pct,2)} <span class="muted">Score <b>${fmt(s.score,0)}</b>/100 · Confidence <b>${fmt(s.confidence,0)}%</b> · as of ${s.date}</span></div>`;
+  if(p){h+=`<h3>Trade plan</h3><div class="plan"><div><span>Buy zone</span><b>${money(p.buy_zone_low,2)} – ${money(p.buy_zone_high,2)}</b></div><div><span>Stop-loss</span><b class="dn">${money(p.stop,2)}</b><span>${fmt(p.stop_pct)}%</span></div><div><span>Target 1 (sell half)</span><b class="up">${money(p.target1,2)}</b><span>+${fmt(p.t1_pct)}%</span></div><div><span>Target 2</span><b class="up">${money(p.target2,2)}</b><span>+${fmt(p.t2_pct)}%</span></div><div><span>Quantity</span><b>${p.qty}</b><span>${money(p.invest)}</span></div><div><span>Max loss if stopped</span><b class="dn">${money(p.max_loss)}</b></div></div>`;
+    if(s.signal==="WAIT") h+=`<p class="small" style="color:var(--amber)">Plan shown for reference only — the market filter says WAIT. Don't buy until the market mood improves.</p>`;}
+  h+=`<h3>Price — last 12 months</h3>${lineChart([{name:"Price",data:s.chart.close,c:"var(--c1)"},{name:"50d",data:s.chart.sma50,c:"var(--c2)",w:1.5},{name:"200d",data:s.chart.sma200,c:"var(--c3)",w:1.5}],s.chart.dates,{hlines:hl})}
+  <div class="legend"><span><i style="background:var(--c1)"></i>Price</span><span><i style="background:var(--c2)"></i>50-day avg</span><span><i style="background:var(--c3)"></i>200-day avg</span>${p?'<span><i style="background:var(--red)"></i>Stop</span><span><i style="background:var(--green)"></i>Targets</span>':""}</div>
+  <div class="grid g2" style="margin-top:12px"><div><h3>Score history (buy ≥ 62)</h3>${lineChart([{name:"Score",data:s.chart.score,c:"var(--c1)"}],s.chart.dates,{w:480,h:200,min:0,max:100,hlines:[{y:62,c:"var(--green)",l:"Buy"},{y:45,c:"var(--red)",l:"Sell"}]})}</div>
+  <div><h3>RSI (30 oversold · 70 overbought)</h3>${lineChart([{name:"RSI",data:s.chart.rsi,c:"var(--c3)"}],s.chart.dates,{w:480,h:200,min:0,max:100,hlines:[{y:70,c:"var(--red)",l:""},{y:30,c:"var(--green)",l:""}]})}</div></div>
+  <div class="grid g2"><div><h3>Score breakdown</h3>${Object.entries(pil).map(([k,[n,m]])=>`<div class="pill-row"><span>${n}</span>${bar(s.pillars[k]||0,m)}<span style="text-align:right">${fmt(s.pillars[k],0)}/${m}</span></div>`).join("")}
+    <h3>Why?</h3><ul class="reasons">${s.reasons.map(([g,t])=>`<li class="${g>0?"g":g<0?"b":"n"}">${esc(t)}</li>`).join("")}</ul></div>
+  <div><h3>Key numbers</h3><div class="kpis">${[["RSI",fmt(i.RSI,0)],["ADX",fmt(i.ADX,0)],["ATR (daily move)",money(i.ATR,2)],["Volatility/yr",fmt(i.VOLAT_ANN,0)+"%"],["1M",pct(i.RET_1M)],["3M",pct(i.RET_3M)],["6M",pct(i.RET_6M)],["12M",pct(i.RET_12M)],["52W high",money(i.HIGH_52W,0)],["52W low",money(i.LOW_52W,0)],["vs 20d avg",pct(i.EXT_EMA20)],["Volume vs avg",fmt(i.VOL_RATIO)+"×"]].map(([l,v])=>`<div class="kpi"><div class="l">${l}</div><div class="v" style="font-size:16px">${v}</div></div>`).join("")}</div>
+    <h3>These rules on this stock (history)</h3><div class="kpis">${[["Trades",bt.trades],["Win rate",bt.win_rate==null?"–":fmt(bt.win_rate,0)+"%"],["Avg win",pct(bt.avg_win)],["Avg loss",pct(bt.avg_loss)],["Profit factor",fmt(bt.profit_factor)],["Strategy",pct(bt.total_return)],["Buy & hold",pct(bt.buy_hold)],["Worst drop",pct(bt.max_drawdown)]].map(([l,v])=>`<div class="kpi"><div class="l">${l}</div><div class="v" style="font-size:16px">${v}</div></div>`).join("")}</div>
+    ${bt.recent_trades.length?`<div class="tablewrap" style="margin-top:8px"><table><thead><tr><th>Entry</th><th>Exit</th><th>Days</th><th>Result</th></tr></thead><tbody>${bt.recent_trades.slice().reverse().map(t=>`<tr><td>${t.entry_date}</td><td>${t.exit_date}</td><td>${t.days}</td><td>${pct(t.ret_pct)}</td></tr>`).join("")}</tbody></table></div>`:""}
+  </div></div>`;
+  $("#detailBody").innerHTML=h; $("#detail").style.display="block"; document.body.style.overflow="hidden";
+  $("#x").onclick=closeDetail;
+}
+function closeDetail(){$("#detail").style.display="none";document.body.style.overflow="";}
+$("#detail").addEventListener("click",e=>{if(e.target.id==="detail") closeDetail();});
+document.addEventListener("keydown",e=>{if(e.key==="Escape") closeDetail();});
+document.addEventListener("click",e=>{const tr=e.target.closest("tr[data-s]"); if(tr&&!e.target.closest("#detail")) openDetail(tr.dataset.s);});
+document.querySelectorAll("#tbl th").forEach(th=>th.onclick=()=>{const k=th.dataset.k; if(sortK===k) sortDir*=-1; else{sortK=k;sortDir=["symbol","signal"].includes(k)?1:-1;} renderTable();});
+
+function render(){
+  const t=new Date(D.generated_at);
+  $("#updated").textContent=`Last analysis: ${t.toLocaleString()} · ${D.stocks.length} stocks analysed · prices as of ${D.stocks[0]?.date||"–"}`;
+  let b="";
+  if(D.demo) b+=`<div class="banner warn">⚠️ DEMO MODE — this page is showing synthetic test data, not real prices. It will switch to live data after the first GitHub Actions run (or run <code>python run.py</code>).</div>`;
+  if(D.failed&&D.failed.length) b+=`<div class="banner warn small">Could not load: ${D.failed.map(esc).join(", ")}</div>`;
+  const age=(Date.now()-t)/36e5; if(!D.demo&&age>36) b+=`<div class="banner bad">Data is ${Math.round(age)} hours old — the automatic update may have failed. Check the Actions tab on GitHub.</div>`;
+  $("#banners").innerHTML=b;
+  renderMarket();renderPicks();renderHoldings();renderFilters();renderTable();renderBacktest();
+}
+async function reload(){
+  try{const r=await fetch("data.json?t="+Date.now(),{cache:"no-store"}); if(r.ok){D=await r.json();render();}}
+  catch(e){ if(location.protocol==="file:") location.reload(); }
+  left=REFRESH_SEC;
+}
+$("#refresh").onclick=reload;
+setInterval(()=>{left--; $("#countdown").textContent=`auto-refresh in ${Math.floor(left/60)}:${String(left%60).padStart(2,"0")}`; if(left<=0) reload();},1000);
+if(D) render(); else { $("#updated").textContent="No data yet — run python run.py"; reload(); }
+})();
+</script>
+</body>
+</html>
